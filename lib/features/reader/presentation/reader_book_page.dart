@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:translate_reader/features/reader/application/reading_session_store.dart';
+import 'package:translate_reader/features/reader/domain/book_pages_util.dart';
+import 'package:translate_reader/features/reader/domain/book_text_formatter.dart';
 import 'package:translate_reader/features/reader/domain/models/book_content.dart';
 import 'package:translate_reader/features/reader/domain/models/reading_session.dart';
 import 'package:translate_reader/features/translation/application/translator_service.dart';
@@ -23,15 +25,16 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
   static const double _maxFontSize = 32;
   static const double _pagePadding = 16;
   static const double _navigationAreaHeight = 64;
-  static const double _pageHeightSafetyMargin = 8;
 
   final TranslatorService _translatorService = TranslatorService();
+  final BookTextFormatter _formatter = BookTextFormatter();
+  final BookPaginator _paginator = BookPaginator();
 
   late final PageController _pageController;
   late final String _bookText;
   late double _fontSize;
 
-  List<_PageSlice> _pages = const [];
+  List<PageSpan> _pages = const [];
   int _currentPage = 0;
   bool _isTranslationSheetOpen = false;
   bool _needsRepagination = true;
@@ -44,10 +47,13 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     final ReadingSession? session = widget.sessionStore.session;
     _fontSize = _resolveInitialFontSize(session);
     _currentPage = session?.currentPage ?? 0;
-    _bookText = widget.book.text;
+
+    // Форматируем текст сразу при загрузке
+    _bookText = _formatter.format(widget.book.text);
+
     _pageController = PageController(initialPage: _currentPage);
 
-    widget.sessionStore.updateFontSize(_fontSize);
+    widget.sessionStore.updateFontSize(_fontSize);  
   }
 
   @override
@@ -92,202 +98,6 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     );
   }
 
-  int _estimateCharsPerPage({
-    required double width,
-    required double height,
-    required TextStyle style,
-    required TextScaler textScaler,
-  }) {
-    final double fontSize = textScaler.scale(style.fontSize ?? 24);
-    final double lineHeight = fontSize * (style.height ?? 1.0);
-    final int estimatedLines = (height / lineHeight).floor().clamp(4, 200);
-    final int estimatedCharsPerLine = (width / (fontSize * 0.58))
-        .floor()
-        .clamp(12, 120);
-    return (estimatedLines * estimatedCharsPerLine).clamp(300, 5000);
-  }
-
-  bool _fitsPage({
-    required String text,
-    required int start,
-    required int length,
-    required double width,
-    required double height,
-    required TextStyle style,
-    required TextDirection textDirection,
-    required TextScaler textScaler,
-  }) {
-    final TextPainter painter = TextPainter(
-      text: TextSpan(
-        text: text.substring(start, start + length),
-        style: style,
-      ),
-      textDirection: textDirection,
-      textScaler: textScaler,
-    )..layout(maxWidth: width);
-
-    return painter.height <= height - _pageHeightSafetyMargin;
-  }
-
-  int _adjustSplitToWordBoundary({
-    required String text,
-    required int start,
-    required int length,
-  }) {
-    if (start + length >= text.length) {
-      return text.length - start;
-    }
-
-    int split = length.clamp(1, text.length - start);
-    final int minSplit = (split * 0.7).floor();
-    while (split > minSplit) {
-      final String char = text[start + split - 1];
-      if (char == ' ' || char == '\n' || char == '\t') {
-        break;
-      }
-      split -= 1;
-    }
-
-    return split == 0 ? length : split;
-  }
-
-  int _skipLeadingWhitespace(String text, int start) {
-    int index = start;
-    while (index < text.length) {
-      final String char = text[index];
-      if (char != ' ' && char != '\n' && char != '\t') {
-        break;
-      }
-      index += 1;
-    }
-    return index;
-  }
-
-  List<_PageSlice> _paginateByLayout({
-    required String text,
-    required double width,
-    required double height,
-    required TextStyle style,
-    required TextDirection textDirection,
-    required TextScaler textScaler,
-  }) {
-    if (text.isEmpty) {
-      return const <_PageSlice>[];
-    }
-
-    final List<_PageSlice> pages = <_PageSlice>[];
-    final int estimatedLength = _estimateCharsPerPage(
-      width: width,
-      height: height,
-      style: style,
-      textScaler: textScaler,
-    );
-    int start = 0;
-
-    while (start < text.length) {
-      final int remainingLength = text.length - start;
-      if (remainingLength <= estimatedLength) {
-        pages.add(_PageSlice(start: start, end: text.length));
-        break;
-      }
-
-      int low = 1;
-      int high = estimatedLength.clamp(1, remainingLength);
-
-      if (_fitsPage(
-        text: text,
-        start: start,
-        length: high,
-        width: width,
-        height: height,
-        style: style,
-        textDirection: textDirection,
-        textScaler: textScaler,
-      )) {
-        low = high;
-        while (high < remainingLength) {
-          final int next = (high * 2).clamp(high + 1, remainingLength);
-          if (!_fitsPage(
-            text: text,
-            start: start,
-            length: next,
-            width: width,
-            height: height,
-            style: style,
-            textDirection: textDirection,
-            textScaler: textScaler,
-          )) {
-            high = next;
-            break;
-          }
-          low = next;
-          high = next;
-        }
-
-        if (high == remainingLength && low == remainingLength) {
-          pages.add(_PageSlice(start: start, end: text.length));
-          break;
-        }
-      } else {
-        while (low < high) {
-          final int mid = low + ((high - low) ~/ 2);
-          if (_fitsPage(
-            text: text,
-            start: start,
-            length: mid,
-            width: width,
-            height: height,
-            style: style,
-            textDirection: textDirection,
-            textScaler: textScaler,
-          )) {
-            low = mid + 1;
-          } else {
-            high = mid;
-          }
-        }
-
-        final int minimalLength = (low - 1).clamp(1, remainingLength);
-        final int splitLength = _adjustSplitToWordBoundary(
-          text: text,
-          start: start,
-          length: minimalLength,
-        );
-        pages.add(_PageSlice(start: start, end: start + splitLength));
-        start = _skipLeadingWhitespace(text, start + splitLength);
-        continue;
-      }
-
-      while (high - low > 1) {
-        final int mid = low + ((high - low) ~/ 2);
-        if (_fitsPage(
-          text: text,
-          start: start,
-          length: mid,
-          width: width,
-          height: height,
-          style: style,
-          textDirection: textDirection,
-          textScaler: textScaler,
-        )) {
-          low = mid;
-        } else {
-          high = mid;
-        }
-      }
-
-      final int splitLength = _adjustSplitToWordBoundary(
-        text: text,
-        start: start,
-        length: low,
-      );
-      pages.add(_PageSlice(start: start, end: start + splitLength));
-      start = _skipLeadingWhitespace(text, start + splitLength);
-    }
-
-    return pages;
-  }
-
   void _repaginate({
     required double width,
     required double height,
@@ -295,35 +105,50 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     required TextDirection textDirection,
     required TextScaler textScaler,
   }) {
-    final int oldPageCount = _pages.length;
-    final double progress = oldPageCount <= 1
-        ? 0.0
-        : _currentPage / (oldPageCount - 1);
+    if (_pages.isNotEmpty) {
+      // Сохраняем примерный прогресс
+      final int oldTotal = _pages.length;
+      final double progress = _currentPage / (oldTotal > 0 ? oldTotal : 1);
 
-    _pages = _paginateByLayout(
-      text: _bookText,
-      width: width,
-      height: height,
-      style: style,
-      textDirection: textDirection,
-      textScaler: textScaler,
-    );
+      _pages = _paginator.paginate(
+        text: _bookText,
+        style: style,
+        textDirection: textDirection,
+        textScaler: textScaler,
+        pageSize: Size(width, height),
+      );
+
+      // Восстанавливаем страницу по прогрессу
+      final int newTotal = _pages.length;
+      _currentPage = (progress * newTotal).floor().clamp(
+        0,
+        newTotal > 0 ? newTotal - 1 : 0,
+      );
+    } else {
+      _pages = _paginator.paginate(
+        text: _bookText,
+        style: style,
+        textDirection: textDirection,
+        textScaler: textScaler,
+        pageSize: Size(width, height),
+      );
+      // Если страниц не было, остаемся на 0 или на сохраненной?
+      // _currentPage уже инициализирован в initState
+      if (_currentPage >= _pages.length) {
+        _currentPage = 0;
+      }
+    }
+
     _lastLayoutSize = Size(width, height);
     _needsRepagination = false;
 
-    final int newPage = _pages.length <= 1
-        ? 0
-        : (((_pages.length - 1) * progress).round()).clamp(0, _pages.length - 1);
-
-    if (_currentPage != newPage || oldPageCount == 0) {
-      _currentPage = newPage;
+    // Обновляем UI
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _pageController.hasClients) {
+        _pageController.jumpToPage(_currentPage);
+      }
       widget.sessionStore.updateCurrentPage(_currentPage);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_pageController.hasClients) {
-          _pageController.jumpToPage(_currentPage);
-        }
-      });
-    }
+    });
   }
 
   bool _isWordChar(String char) {
@@ -400,7 +225,9 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
       text: TextSpan(text: pageText, style: textStyle),
       textDirection: textDirection,
       textScaler: textScaler,
-    )..layout(maxWidth: maxWidth);
+    );
+    
+    painter.layout(maxWidth: maxWidth);
 
     if (localOffset.dy > painter.height) {
       return;
@@ -469,13 +296,15 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
       body: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
           final double textWidth = constraints.maxWidth - (_pagePadding * 2);
-          final double textHeight = constraints.maxHeight -
+          final double textHeight =
+              constraints.maxHeight -
               (_pagePadding * 2) -
               _navigationAreaHeight;
           final Size layoutSize = Size(textWidth, textHeight);
           final TextStyle textStyle = TextStyle(
             fontSize: _fontSize,
             height: 1.55,
+            color: Theme.of(context).textTheme.bodyLarge?.color,
           );
 
           if (_needsRepagination || _lastLayoutSize != layoutSize) {
@@ -538,9 +367,11 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
                           child: SizedBox.expand(
                             child: Align(
                               alignment: Alignment.topLeft,
-                              child: Text(
-                                pageText,
-                                style: textStyle,
+                              child: RichText(
+                                text: TextSpan(
+                                  text: pageText,
+                                  style: textStyle,
+                                ),
                                 textDirection: textDirection,
                                 textScaler: textScaler,
                               ),
@@ -633,10 +464,7 @@ class _TranslationSheet extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 14),
-              Text(
-                'Перевод слова',
-                style: theme.textTheme.titleLarge,
-              ),
+              Text('Перевод слова', style: theme.textTheme.titleLarge),
               const SizedBox(height: 12),
               Container(
                 width: double.infinity,
@@ -645,37 +473,35 @@ class _TranslationSheet extends StatelessWidget {
                   color: theme.colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Text(
-                  sourceText,
-                  style: theme.textTheme.titleMedium,
-                ),
+                child: Text(sourceText, style: theme.textTheme.titleMedium),
               ),
               const SizedBox(height: 12),
               FutureBuilder<String>(
                 future: translationFuture,
-                builder: (BuildContext context, AsyncSnapshot<String> snapshot) {
-                  if (snapshot.connectionState != ConnectionState.done) {
-                    return Row(
-                      children: <Widget>[
-                        const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                        const SizedBox(width: 10),
-                        Text(
-                          'Перевожу...',
-                          style: theme.textTheme.bodyLarge,
-                        ),
-                      ],
-                    );
-                  }
+                builder:
+                    (BuildContext context, AsyncSnapshot<String> snapshot) {
+                      if (snapshot.connectionState != ConnectionState.done) {
+                        return Row(
+                          children: <Widget>[
+                            const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              'Перевожу...',
+                              style: theme.textTheme.bodyLarge,
+                            ),
+                          ],
+                        );
+                      }
 
-                  return Text(
-                    snapshot.data ?? 'Не удалось выполнить перевод.',
-                    style: theme.textTheme.bodyLarge,
-                  );
-                },
+                      return Text(
+                        snapshot.data ?? 'Не удалось выполнить перевод.',
+                        style: theme.textTheme.bodyLarge,
+                      );
+                    },
               ),
               const SizedBox(height: 16),
               TextButton(
@@ -687,19 +513,5 @@ class _TranslationSheet extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class _PageSlice {
-  const _PageSlice({
-    required this.start,
-    required this.end,
-  });
-
-  final int start;
-  final int end;
-
-  String read(String source) {
-    return source.substring(start, end);
   }
 }
