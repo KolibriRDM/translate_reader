@@ -1,0 +1,23 @@
+name: translate_reader
+description: "Приложение-читалка с переводом"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  file_picker: ^10.3.10
+  translator: ^1.0.4+1
+  epubx: ^4.0.0
+  xml: ^6.6.1
+  archive: ^3.6.1
+
+dev_dependencies:
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
