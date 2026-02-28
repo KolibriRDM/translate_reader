@@ -40,6 +40,7 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
   late final PageController _pageController;
   late final ScrollController _verticalScrollController;
   late final String _bookText;
+  late final List<String> _continuousBlocks;
   late double _fontSize;
   late ReaderAppearancePreset _appearancePreset;
   late ReaderLayoutMode _layoutMode;
@@ -47,12 +48,13 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
   List<PageSpan> _pages = const [];
   int _currentPage = 0;
   bool _isTranslationSheetOpen = false;
+  bool _isLayoutTransitioning = false;
   bool _needsRepagination = true;
   Size _lastLayoutSize = Size.zero;
-  double _verticalItemExtent = 0;
   String? _selectedText;
   _TapTranslationState? _tapTranslationState;
   int _tapTranslationRequestId = 0;
+  Timer? _layoutTransitionTimer;
   final Map<String, String> _translationCache = <String, String>{};
   int? _activePointer;
   Offset? _pointerDownPosition;
@@ -71,6 +73,7 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
 
     // Форматируем текст сразу при загрузке
     _bookText = _formatter.format(widget.book.text);
+    _continuousBlocks = _bookText.split('\n');
 
     _pageController = PageController(initialPage: _currentPage);
     _verticalScrollController = ScrollController();
@@ -82,6 +85,7 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
 
   @override
   void dispose() {
+    _layoutTransitionTimer?.cancel();
     _pageController.dispose();
     _verticalScrollController.dispose();
     super.dispose();
@@ -116,6 +120,7 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     setState(() {
       _fontSize = newFontSize;
       _needsRepagination = true;
+      _isLayoutTransitioning = true;
       _tapTranslationState = null;
     });
 
@@ -142,11 +147,25 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
 
     setState(() {
       _layoutMode = mode;
-      _needsRepagination = true;
+      _isLayoutTransitioning = true;
+      if (mode == ReaderLayoutMode.pagedHorizontal) {
+        _needsRepagination = true;
+      }
       _tapTranslationState = null;
     });
 
     widget.sessionStore.updateLayoutMode(mode);
+
+    if (mode == ReaderLayoutMode.scrollVertical) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+
+        _restoreVerticalScrollPosition(pageCount: _pages.length);
+        _completeLayoutTransition();
+      });
+    }
   }
 
   void _goToPage(int page) {
@@ -163,14 +182,13 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
       return;
     }
 
-    if (!_verticalScrollController.hasClients || _verticalItemExtent <= 0) {
+    if (!_verticalScrollController.hasClients || _pages.isEmpty) {
       return;
     }
 
-    final double targetOffset = (page * _verticalItemExtent).clamp(
-      0,
-      _verticalScrollController.position.maxScrollExtent,
-    );
+    final double progress = _pages.length <= 1 ? 0 : page / (_pages.length - 1);
+    final double targetOffset =
+        progress * _verticalScrollController.position.maxScrollExtent;
     _verticalScrollController.animateTo(
       targetOffset,
       duration: const Duration(milliseconds: 180),
@@ -232,22 +250,24 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
           _pageController.hasClients) {
         _pageController.jumpToPage(_currentPage);
       } else if (_layoutMode == ReaderLayoutMode.scrollVertical) {
-        _restoreVerticalScrollPosition();
+        _restoreVerticalScrollPosition(pageCount: _pages.length);
       }
 
       widget.sessionStore.updateCurrentPage(_currentPage);
+      _completeLayoutTransition();
     });
   }
 
-  void _restoreVerticalScrollPosition() {
-    if (!_verticalScrollController.hasClients || _verticalItemExtent <= 0) {
+  void _restoreVerticalScrollPosition({required int pageCount}) {
+    if (!_verticalScrollController.hasClients || pageCount <= 0) {
       return;
     }
 
-    final double targetOffset = (_currentPage * _verticalItemExtent).clamp(
-      0,
-      _verticalScrollController.position.maxScrollExtent,
-    );
+    final double progress = pageCount <= 1
+        ? 0
+        : (_currentPage / (pageCount - 1)).clamp(0, 1).toDouble();
+    final double targetOffset =
+        progress * _verticalScrollController.position.maxScrollExtent;
     final double currentOffset = _verticalScrollController.offset;
 
     if ((currentOffset - targetOffset).abs() < 1) {
@@ -274,17 +294,32 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     required ScrollNotification notification,
     required int pageCount,
   }) {
-    if (notification.metrics.axis != Axis.vertical ||
-        _verticalItemExtent <= 0 ||
-        pageCount <= 0) {
+    if (notification.metrics.axis != Axis.vertical || pageCount <= 0) {
       return false;
     }
 
-    final int page = (notification.metrics.pixels / _verticalItemExtent)
-        .round()
-        .clamp(0, pageCount - 1);
+    final double maxScrollExtent = notification.metrics.maxScrollExtent;
+    final double progress = maxScrollExtent <= 0
+        ? 0
+        : (notification.metrics.pixels / maxScrollExtent).clamp(0, 1).toDouble();
+    final int page = pageCount <= 1
+        ? 0
+        : (progress * (pageCount - 1)).round().clamp(0, pageCount - 1);
     _handleCurrentPageChanged(page);
     return false;
+  }
+
+  void _completeLayoutTransition() {
+    _layoutTransitionTimer?.cancel();
+    _layoutTransitionTimer = Timer(const Duration(milliseconds: 220), () {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isLayoutTransitioning = false;
+      });
+    });
   }
 
   bool _isWordChar(String char) {
@@ -378,6 +413,9 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
       textScaler: textScaler,
     );
     painter.layout(maxWidth: maxWidth);
+    final double overlayMaxHeight = maxHeight.isFinite
+        ? maxHeight
+        : painter.height + 72;
 
     if (localOffset.dy > painter.height) {
       _clearTapTranslation();
@@ -425,7 +463,7 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
         highlightRects: highlightRects,
         popupAnchor: popupAnchor,
         maxWidth: maxWidth,
-        maxHeight: maxHeight,
+        maxHeight: overlayMaxHeight,
         translation: cachedTranslation,
         isLoading: cachedTranslation == null,
       );
@@ -515,6 +553,7 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     required PointerUpEvent event,
     required int pageIndex,
     required String pageText,
+    Offset? localOffset,
     required double maxWidth,
     required double maxHeight,
     required TextStyle textStyle,
@@ -530,7 +569,7 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
         event.timeStamp - (_pointerDownTimestamp ?? Duration.zero);
     final bool shouldHandleTap =
         !_pointerMovedTooFar && elapsed <= _tapMaxDuration;
-    final Offset localPosition = event.localPosition;
+    final Offset localPosition = localOffset ?? event.localPosition;
 
     _resetPointerTracking();
 
@@ -858,6 +897,138 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     );
   }
 
+  Widget _buildContinuousBlock({
+    required BuildContext context,
+    required int index,
+    required String text,
+    required double textWidth,
+    required TextStyle textStyle,
+    required TextDirection textDirection,
+    required TextScaler textScaler,
+    required _ReaderAppearance appearance,
+  }) {
+    if (text.trim().isEmpty) {
+      return SizedBox(height: (_fontSize * 0.75).clamp(12, 28));
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: <Widget>[
+          Listener(
+            behavior: HitTestBehavior.opaque,
+            onPointerDown: _handlePointerDown,
+            onPointerMove: _handlePointerMove,
+            onPointerCancel: (_) => _resetPointerTracking(),
+            onPointerUp: (PointerUpEvent event) {
+              _handlePointerUp(
+                event: event,
+                pageIndex: index,
+                pageText: text,
+                localOffset: event.localPosition,
+                maxWidth: textWidth,
+                maxHeight: double.infinity,
+                textStyle: textStyle,
+                textDirection: textDirection,
+                textScaler: textScaler,
+              );
+            },
+            child: Builder(
+              builder: (BuildContext context) {
+                return RichText(
+                  text: TextSpan(text: text, style: textStyle),
+                  textDirection: textDirection,
+                  textScaler: textScaler,
+                  selectionRegistrar: SelectionContainer.maybeOf(context),
+                  selectionColor: appearance.accentColor.withValues(alpha: 0.28),
+                );
+              },
+            ),
+          ),
+          if (_tapTranslationState?.pageIndex == index)
+            ..._buildTapTranslationOverlay(
+              context: context,
+              state: _tapTranslationState!,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContinuousReader({
+    required BuildContext context,
+    required double textWidth,
+    required TextStyle textStyle,
+    required TextDirection textDirection,
+    required TextScaler textScaler,
+    required _ReaderAppearance appearance,
+    required int pageCount,
+  }) {
+    return Stack(
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.all(_readerFramePadding),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: appearance.pageColor,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: appearance.borderColor),
+              boxShadow: <BoxShadow>[
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.08),
+                  blurRadius: 24,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: SelectionArea(
+              onSelectionChanged: _handleSelectionChanged,
+              contextMenuBuilder: _buildSelectionContextMenu,
+              child: NotificationListener<ScrollNotification>(
+                onNotification: (ScrollNotification notification) {
+                  return _handleVerticalScrollNotification(
+                    notification: notification,
+                    pageCount: pageCount,
+                  );
+                },
+                child: SingleChildScrollView(
+                  controller: _verticalScrollController,
+                  padding: const EdgeInsets.all(_pagePadding),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: List<Widget>.generate(_continuousBlocks.length, (
+                      int index,
+                    ) {
+                      return _buildContinuousBlock(
+                        context: context,
+                        index: index,
+                        text: _continuousBlocks[index],
+                        textWidth: textWidth,
+                        textStyle: textStyle,
+                        textDirection: textDirection,
+                        textScaler: textScaler,
+                        appearance: appearance,
+                      );
+                    }, growable: false),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          right: _readerFramePadding + _pagePadding,
+          bottom: _readerFramePadding + _pagePadding,
+          child: _buildVerticalProgressBadge(
+            appearance: appearance,
+            pageCount: pageCount,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildVerticalProgressBadge({
     required _ReaderAppearance appearance,
     required int pageCount,
@@ -883,6 +1054,67 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
             style: TextStyle(
               color: appearance.textColor,
               fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLayoutTransitionOverlay({
+    required _ReaderAppearance appearance,
+    required String label,
+  }) {
+    return AnimatedOpacity(
+      opacity: _isLayoutTransitioning ? 1 : 0,
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      child: IgnorePointer(
+        ignoring: !_isLayoutTransitioning,
+        child: Container(
+          color: appearance.scaffoldColor.withValues(alpha: 0.58),
+          alignment: Alignment.center,
+          child: AnimatedScale(
+            scale: _isLayoutTransitioning ? 1 : 0.96,
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: appearance.chromeColor,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: appearance.borderColor),
+                boxShadow: <BoxShadow>[
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        color: appearance.accentColor,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        color: appearance.textColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
@@ -970,16 +1202,13 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
               constraints.maxWidth -
               (_readerFramePadding * 2) -
               (_pagePadding * 2);
-          final double textHeight =
+          final double pagedTextHeight =
               constraints.maxHeight -
               (_readerFramePadding * 2) -
               (_pagePadding * 2) -
-              (_layoutMode == ReaderLayoutMode.pagedHorizontal
-                  ? _navigationAreaHeight + _navigationTopSpacing
-                  : 0);
-          final Size layoutSize = Size(textWidth, textHeight);
-          _verticalItemExtent =
-              textHeight + (_pagePadding * 2) + (_readerFramePadding * 2);
+              _navigationAreaHeight -
+              _navigationTopSpacing;
+          final Size layoutSize = Size(textWidth, pagedTextHeight);
           final TextStyle textStyle = TextStyle(
             fontSize: _fontSize,
             height: 1.55,
@@ -995,7 +1224,7 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
               setState(() {
                 _repaginate(
                   width: textWidth,
-                  height: textHeight,
+                  height: pagedTextHeight,
                   style: textStyle,
                   textDirection: textDirection,
                   textScaler: textScaler,
@@ -1011,75 +1240,64 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
           }
 
           final int pageCount = _pages.isEmpty ? 1 : _pages.length;
-
-          if (_layoutMode == ReaderLayoutMode.scrollVertical) {
-            return Stack(
-              children: <Widget>[
-                NotificationListener<ScrollNotification>(
-                  onNotification: (ScrollNotification notification) {
-                    return _handleVerticalScrollNotification(
-                      notification: notification,
-                      pageCount: pageCount,
-                    );
-                  },
-                  child: ListView.builder(
-                    controller: _verticalScrollController,
-                    itemCount: pageCount,
-                    itemExtent: _verticalItemExtent,
-                    itemBuilder: (BuildContext context, int index) {
-                      return _buildReaderPage(
-                        context: context,
-                        index: index,
-                        textWidth: textWidth,
-                        textHeight: textHeight,
-                        textStyle: textStyle,
-                        textDirection: textDirection,
-                        textScaler: textScaler,
+          final Widget readerBody = _layoutMode == ReaderLayoutMode.scrollVertical
+              ? _buildContinuousReader(
+                  context: context,
+                  textWidth: textWidth,
+                  textStyle: textStyle,
+                  textDirection: textDirection,
+                  textScaler: textScaler,
+                  appearance: appearance,
+                  pageCount: pageCount,
+                )
+              : Stack(
+                  children: <Widget>[
+                    PageView.builder(
+                      controller: _pageController,
+                      scrollDirection: Axis.horizontal,
+                      itemCount: pageCount,
+                      onPageChanged: _handleCurrentPageChanged,
+                      itemBuilder: (BuildContext context, int index) {
+                        return _buildReaderPage(
+                          context: context,
+                          index: index,
+                          textWidth: textWidth,
+                          textHeight: pagedTextHeight,
+                          textStyle: textStyle,
+                          textDirection: textDirection,
+                          textScaler: textScaler,
+                          appearance: appearance,
+                        );
+                      },
+                    ),
+                    Positioned(
+                      left: _readerFramePadding + _pagePadding,
+                      right: _readerFramePadding + _pagePadding,
+                      bottom: _readerFramePadding + _pagePadding,
+                      child: _buildBottomNavigation(
                         appearance: appearance,
-                      );
-                    },
-                  ),
-                ),
-                Positioned(
-                  right: _readerFramePadding + _pagePadding,
-                  bottom: _readerFramePadding + _pagePadding,
-                  child: _buildVerticalProgressBadge(
-                    appearance: appearance,
-                    pageCount: pageCount,
-                  ),
-                ),
-              ],
-            );
-          }
+                        pageCount: pageCount,
+                      ),
+                    ),
+                  ],
+                );
 
           return Stack(
             children: <Widget>[
-              PageView.builder(
-                controller: _pageController,
-                scrollDirection: Axis.horizontal,
-                itemCount: pageCount,
-                onPageChanged: _handleCurrentPageChanged,
-                itemBuilder: (BuildContext context, int index) {
-                  return _buildReaderPage(
-                    context: context,
-                    index: index,
-                    textWidth: textWidth,
-                    textHeight: textHeight,
-                    textStyle: textStyle,
-                    textDirection: textDirection,
-                    textScaler: textScaler,
-                    appearance: appearance,
-                  );
-                },
-              ),
-              Positioned(
-                left: _readerFramePadding + _pagePadding,
-                right: _readerFramePadding + _pagePadding,
-                bottom: _readerFramePadding + _pagePadding,
-                child: _buildBottomNavigation(
-                  appearance: appearance,
-                  pageCount: pageCount,
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 240),
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                child: KeyedSubtree(
+                  key: ValueKey<ReaderLayoutMode>(_layoutMode),
+                  child: readerBody,
                 ),
+              ),
+              _buildLayoutTransitionOverlay(
+                appearance: appearance,
+                label: _layoutMode == ReaderLayoutMode.scrollVertical
+                    ? 'Подготавливаю сплошной текст'
+                    : 'Подготавливаю страницы',
               ),
             ],
           );
