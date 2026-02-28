@@ -6,7 +6,14 @@ import 'package:translate_reader/features/reader/domain/models/reading_session.d
 import 'package:translate_reader/features/reader/presentation/reader_book_page.dart';
 
 class ReaderHomePage extends StatefulWidget {
-  const ReaderHomePage({super.key});
+  const ReaderHomePage({
+    required this.themeMode,
+    required this.onThemeModeChanged,
+    super.key,
+  });
+
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode> onThemeModeChanged;
 
   @override
   State<ReaderHomePage> createState() => _ReaderHomePageState();
@@ -23,7 +30,7 @@ class _ReaderHomePageState extends State<ReaderHomePage> {
   @override
   void initState() {
     super.initState();
-    final session = _sessionStore.session;
+    final ReadingSession? session = _sessionStore.session;
     if (session != null) {
       _lastOpenedBook = session.book;
       _statusMessage = 'Можно продолжить чтение с сохранённой страницы.';
@@ -52,40 +59,38 @@ class _ReaderHomePageState extends State<ReaderHomePage> {
       }
     });
 
-    if (result.book != null) {
-      _sessionStore.startSession(book: result.book!);
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (BuildContext context) => ReaderBookPage(
-            book: result.book!,
-            sessionStore: _sessionStore,
-          ),
-        ),
-      );
-
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _lastOpenedBook = _sessionStore.session?.book;
-        _statusMessage = 'Чтение можно продолжить в рамках текущей сессии.';
-      });
+    if (result.book == null) {
+      return;
     }
+
+    _sessionStore.startSession(book: result.book!);
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) =>
+            ReaderBookPage(book: result.book!, sessionStore: _sessionStore),
+      ),
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _lastOpenedBook = _sessionStore.session?.book;
+      _statusMessage = 'Чтение можно продолжить в рамках текущей сессии.';
+    });
   }
 
   Future<void> _continueReading() async {
-    final session = _sessionStore.session;
+    final ReadingSession? session = _sessionStore.session;
     if (session == null) {
       return;
     }
 
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (BuildContext context) => ReaderBookPage(
-          book: session.book,
-          sessionStore: _sessionStore,
-        ),
+        builder: (BuildContext context) =>
+            ReaderBookPage(book: session.book, sessionStore: _sessionStore),
       ),
     );
 
@@ -101,59 +106,73 @@ class _ReaderHomePageState extends State<ReaderHomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colorScheme = theme.colorScheme;
+    final ReadingSession? session = _sessionStore.session;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Читалка с переводом')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Text(
-            'Этап 2: выбор файла и просмотр книги.',
-            style: Theme.of(context).textTheme.titleLarge,
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: <Color>[
+              colorScheme.surface,
+              colorScheme.primaryContainer.withValues(alpha: 0.42),
+              colorScheme.surface,
+            ],
+            stops: const <double>[0, 0.35, 1],
           ),
-          const SizedBox(height: 12),
-          const Text(
-            'Откройте файл и читайте полный текст книги.',
-          ),
-          const SizedBox(height: 20),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: _BookInfoPanel(
-                book: _lastOpenedBook,
-                session: _sessionStore.session,
-                statusMessage: _statusMessage,
+        ),
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            children: <Widget>[
+              _HomeHeader(
+                themeMode: widget.themeMode,
+                onThemeModeChanged: widget.onThemeModeChanged,
               ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          if (_sessionStore.session != null)
-            SizedBox(
-              height: 48,
-              child: ElevatedButton(
-                onPressed: _continueReading,
-                child: const Text('Продолжить чтение'),
+              const SizedBox(height: 24),
+              _HeroSection(
+                isLoading: _isLoading,
+                hasSession: session != null,
+                onOpenBook: _openBook,
+                onContinueReading: session == null ? null : _continueReading,
               ),
-            ),
-          if (_sessionStore.session != null) const SizedBox(height: 12),
-          SizedBox(
-            height: 48,
-            child: ElevatedButton(
-              onPressed: _openBook,
-              child: _isLoading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Открыть книгу'),
-            ),
+              const SizedBox(height: 20),
+              Card(
+                clipBehavior: Clip.antiAlias,
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: _BookInfoPanel(
+                    book: _lastOpenedBook,
+                    session: session,
+                    statusMessage: _statusMessage,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: const <Widget>[
+                  _FeatureBadge(
+                    icon: Icons.auto_stories_rounded,
+                    label: 'Удобное чтение',
+                  ),
+                  _FeatureBadge(
+                    icon: Icons.touch_app_rounded,
+                    label: 'Перевод по тапу',
+                  ),
+                  _FeatureBadge(
+                    icon: Icons.text_fields_rounded,
+                    label: 'Гибкий размер шрифта',
+                  ),
+                ],
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
-          Text(
-            'В книге выделяйте одно или несколько слов: после выделения доступны кнопки «Копировать» и «Перевести».',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -172,27 +191,369 @@ class _BookInfoPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colorScheme = theme.colorScheme;
+
     if (book == null) {
-      return Text(statusMessage);
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Библиотека пуста',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Откройте файл, и приложение запомнит текущую книгу и позицию чтения.',
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 18),
+          _StatusPill(message: statusMessage),
+        ],
+      );
     }
+
+    final List<_MetaItem> items = <_MetaItem>[
+      _MetaItem(label: 'Формат', value: book!.format.label),
+      if (session != null)
+        _MetaItem(label: 'Страница', value: '${session!.currentPage + 1}'),
+      if (session != null)
+        _MetaItem(label: 'Режим', value: session!.layoutMode.label),
+      if (session != null)
+        _MetaItem(
+          label: 'Шрифт',
+          value: '${session!.fontSize.toStringAsFixed(0)} pt',
+        ),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Последняя открытая книга: ${book!.fileName}'),
-        const SizedBox(height: 4),
-        Text('Формат: ${book!.format.label}'),
-        if (session != null) const SizedBox(height: 4),
-        if (session != null) Text('Сохранённая страница: ${session!.currentPage + 1}'),
-        if (session != null) const SizedBox(height: 4),
-        if (session != null)
-          Text('Размер шрифта: ${session!.fontSize.toStringAsFixed(0)}'),
-        const SizedBox(height: 12),
+      children: <Widget>[
         Text(
-          'Текущий режим: постраничный просмотр',
-          style: Theme.of(context).textTheme.titleMedium,
+          'Текущая книга',
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+            letterSpacing: 0.3,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          book!.fileName,
+          style: theme.textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: items.map((item) => _MetaChip(item: item)).toList(),
+        ),
+        const SizedBox(height: 18),
+        _StatusPill(message: statusMessage),
+      ],
+    );
+  }
+}
+
+class _HomeHeader extends StatelessWidget {
+  const _HomeHeader({
+    required this.themeMode,
+    required this.onThemeModeChanged,
+  });
+
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode> onThemeModeChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colorScheme = theme.colorScheme;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                'Translate Reader',
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Спокойный экран для чтения книг и быстрого перевода незнакомых слов.',
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 16),
+        _ThemeSwitcher(
+          themeMode: themeMode,
+          onThemeModeChanged: onThemeModeChanged,
         ),
       ],
     );
   }
+}
+
+class _HeroSection extends StatelessWidget {
+  const _HeroSection({
+    required this.isLoading,
+    required this.hasSession,
+    required this.onOpenBook,
+    required this.onContinueReading,
+  });
+
+  final bool isLoading;
+  final bool hasSession;
+  final VoidCallback onOpenBook;
+  final VoidCallback? onContinueReading;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colorScheme = theme.colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[
+            colorScheme.primaryContainer.withValues(alpha: 0.95),
+            colorScheme.secondaryContainer.withValues(alpha: 0.92),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(32),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: colorScheme.primary.withValues(alpha: 0.14),
+            blurRadius: 28,
+            offset: const Offset(0, 16),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: colorScheme.onPrimaryContainer.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(
+              Icons.menu_book_rounded,
+              color: colorScheme.onPrimaryContainer,
+              size: 28,
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            hasSession
+                ? 'Продолжайте с того места, где остановились'
+                : 'Откройте книгу и начните чтение',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              color: colorScheme.onPrimaryContainer,
+              fontWeight: FontWeight.w800,
+              height: 1.1,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Поддерживается постраничное чтение, перевод выделения и быстрый просмотр перевода по касанию.',
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: colorScheme.onPrimaryContainer.withValues(alpha: 0.86),
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 24),
+          ElevatedButton.icon(
+            onPressed: isLoading ? null : onOpenBook,
+            icon: isLoading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.file_open_rounded),
+            label: Text(isLoading ? 'Открываю...' : 'Открыть книгу'),
+          ),
+          if (hasSession) const SizedBox(height: 12),
+          if (hasSession)
+            OutlinedButton.icon(
+              onPressed: onContinueReading,
+              icon: const Icon(Icons.play_circle_outline_rounded),
+              label: const Text('Продолжить чтение'),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ThemeSwitcher extends StatelessWidget {
+  const _ThemeSwitcher({
+    required this.themeMode,
+    required this.onThemeModeChanged,
+  });
+
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode> onThemeModeChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(
+          context,
+        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: SegmentedButton<ThemeMode>(
+          showSelectedIcon: false,
+          segments: const <ButtonSegment<ThemeMode>>[
+            ButtonSegment<ThemeMode>(
+              value: ThemeMode.light,
+              icon: Icon(Icons.wb_sunny_outlined),
+              label: Text('День'),
+            ),
+            ButtonSegment<ThemeMode>(
+              value: ThemeMode.dark,
+              icon: Icon(Icons.nights_stay_outlined),
+              label: Text('Вечер'),
+            ),
+          ],
+          selected: <ThemeMode>{themeMode},
+          onSelectionChanged: (Set<ThemeMode> selection) {
+            onThemeModeChanged(selection.first);
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _FeatureBadge extends StatelessWidget {
+  const _FeatureBadge({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.62),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(icon, size: 18, color: colorScheme.primary),
+          const SizedBox(width: 8),
+          Text(label),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetaChip extends StatelessWidget {
+  const _MetaChip({required this.item});
+
+  final _MetaItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colorScheme = theme.colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.68),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            item.label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            item.value,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: colorScheme.tertiaryContainer.withValues(alpha: 0.74),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: <Widget>[
+          Icon(
+            Icons.bookmark_added_rounded,
+            size: 18,
+            color: colorScheme.onTertiaryContainer,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(color: colorScheme.onTertiaryContainer),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetaItem {
+  const _MetaItem({required this.label, required this.value});
+
+  final String label;
+  final String value;
 }

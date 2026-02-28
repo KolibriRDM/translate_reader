@@ -10,15 +10,18 @@ class ReadingSessionStore {
 
   ReadingSession? get session => _session;
 
-  void startSession({
-    required BookContent book,
-    double defaultFontSize = 22,
-  }) {
-    final savedFontSize = _session?.fontSize;
+  void startSession({required BookContent book, double defaultFontSize = 22}) {
+    final double? savedFontSize = _session?.fontSize;
+    final ReaderAppearancePreset savedAppearancePreset =
+        _session?.appearancePreset ?? ReaderAppearancePreset.paper;
+    final ReaderLayoutMode savedLayoutMode =
+        _session?.layoutMode ?? ReaderLayoutMode.pagedHorizontal;
     _session = ReadingSession(
       book: book,
       currentPage: 0,
       fontSize: savedFontSize ?? defaultFontSize,
+      appearancePreset: savedAppearancePreset,
+      layoutMode: savedLayoutMode,
     );
   }
 
@@ -38,5 +41,23 @@ class ReadingSessionStore {
     }
 
     _session = current.copyWith(fontSize: fontSize);
+  }
+
+  void updateAppearancePreset(ReaderAppearancePreset appearancePreset) {
+    final ReadingSession? current = _session;
+    if (current == null) {
+      return;
+    }
+
+    _session = current.copyWith(appearancePreset: appearancePreset);
+  }
+
+  void updateLayoutMode(ReaderLayoutMode layoutMode) {
+    final ReadingSession? current = _session;
+    if (current == null) {
+      return;
+    }
+
+    _session = current.copyWith(layoutMode: layoutMode);
   }
 }
