@@ -461,11 +461,6 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     final String cacheKey = wordHit.word.toLowerCase();
     final String? cachedTranslation = _translationCache[cacheKey];
 
-    final bool isSaved = await _vocabularyService.isWordSaved(wordHit.word);
-    if (!mounted || requestId != _tapTranslationRequestId) {
-      return;
-    }
-
     setState(() {
       _tapTranslationState = _TapTranslationState(
         pageIndex: pageIndex,
@@ -476,9 +471,15 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
         maxHeight: overlayMaxHeight,
         translation: cachedTranslation,
         isLoading: cachedTranslation == null,
-        isSavedToVocabulary: isSaved,
+        isSavedToVocabulary: false,
       );
     });
+
+    unawaited(_syncTapTranslationSavedState(
+      requestId: requestId,
+      pageIndex: pageIndex,
+      word: wordHit.word,
+    ));
 
     if (cachedTranslation != null) {
       return;
@@ -508,6 +509,36 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
         translation: translation,
         isLoading: false,
         isSavedToVocabulary: currentState.isSavedToVocabulary,
+      );
+    });
+  }
+
+  Future<void> _syncTapTranslationSavedState({
+    required int requestId,
+    required int pageIndex,
+    required String word,
+  }) async {
+    final bool isSaved;
+    try {
+      isSaved = await _vocabularyService.isWordSaved(word);
+    } catch (_) {
+      return;
+    }
+
+    if (!mounted || requestId != _tapTranslationRequestId) {
+      return;
+    }
+
+    setState(() {
+      final _TapTranslationState? currentState = _tapTranslationState;
+      if (currentState == null ||
+          currentState.pageIndex != pageIndex ||
+          currentState.word != word) {
+        return;
+      }
+
+      _tapTranslationState = currentState.copyWith(
+        isSavedToVocabulary: isSaved,
       );
     });
   }

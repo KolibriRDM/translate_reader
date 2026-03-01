@@ -4,6 +4,26 @@ enum ReaderAppearancePreset { paper, mist, sepia, sage, graphite, night }
 
 enum ReaderLayoutMode { pagedHorizontal, scrollVertical }
 
+ReaderAppearancePreset parseReaderAppearancePreset(String value) {
+  for (final ReaderAppearancePreset preset in ReaderAppearancePreset.values) {
+    if (preset.name == value) {
+      return preset;
+    }
+  }
+
+  return ReaderAppearancePreset.paper;
+}
+
+ReaderLayoutMode parseReaderLayoutMode(String value) {
+  for (final ReaderLayoutMode mode in ReaderLayoutMode.values) {
+    if (mode.name == value) {
+      return mode;
+    }
+  }
+
+  return ReaderLayoutMode.pagedHorizontal;
+}
+
 extension ReaderLayoutModeX on ReaderLayoutMode {
   String get label {
     switch (this) {

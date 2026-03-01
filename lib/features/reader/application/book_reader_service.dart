@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:epubx/epubx.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:path/path.dart' as p;
 import 'package:translate_reader/core/models/book_format.dart';
 import 'package:translate_reader/features/reader/domain/models/book_content.dart';
 import 'package:xml/xml_events.dart';
@@ -31,40 +32,105 @@ class BookReaderService {
     }
 
     try {
-      String text;
-      if (format == BookFormat.txt) {
-        text = await _buildTxtText(file);
-      } else if (format == BookFormat.fb2) {
-        text = await _buildFb2Text(file);
-      } else {
-        final bytes = await _readFileBytes(file);
-        if (bytes == null) {
-          return const BookLoadResult(
-            message: 'Не удалось прочитать содержимое файла.',
-          );
-        }
-        text = await _buildEpubText(bytes);
-      }
-
-      final normalizedText = _normalizeText(text);
-      if (normalizedText.isEmpty) {
-        return const BookLoadResult(
-          message: 'В выбранной книге не найден текст.',
-        );
-      }
-
-      return BookLoadResult(
-        book: BookContent(
-          fileName: file.name,
-          format: format,
-          text: normalizedText,
-        ),
+      return _loadBook(
+        fileName: file.name,
+        filePath: file.path,
+        format: format,
+        loadText: () => _readBookTextFromPlatformFile(file, format),
       );
     } catch (_) {
       return const BookLoadResult(
         message: 'Не удалось открыть выбранную книгу.',
       );
     }
+  }
+
+  Future<BookLoadResult> loadBookFromPath(String path) async {
+    final File file = File(path);
+    if (!await file.exists()) {
+      return const BookLoadResult(
+        message: 'Файл последней книги больше недоступен.',
+      );
+    }
+
+    final String fileName = p.basename(path);
+    final BookFormat? format = BookFormat.fromPath(fileName);
+    if (format == null) {
+      return const BookLoadResult(message: 'Неподдерживаемый формат файла.');
+    }
+
+    try {
+      return _loadBook(
+        fileName: fileName,
+        filePath: path,
+        format: format,
+        loadText: () => _readBookTextFromFile(file, format),
+      );
+    } catch (_) {
+      return const BookLoadResult(
+        message: 'Не удалось открыть сохранённую книгу.',
+      );
+    }
+  }
+
+  Future<BookLoadResult> _loadBook({
+    required String fileName,
+    required String? filePath,
+    required BookFormat format,
+    required Future<String> Function() loadText,
+  }) async {
+    final String normalizedText = _normalizeText(await loadText());
+    if (normalizedText.isEmpty) {
+      return const BookLoadResult(
+        message: 'В выбранной книге не найден текст.',
+      );
+    }
+
+    return BookLoadResult(
+      book: BookContent(
+        fileName: fileName,
+        filePath: filePath,
+        format: format,
+        text: normalizedText,
+      ),
+    );
+  }
+
+  Future<String> _readBookTextFromPlatformFile(
+    PlatformFile file,
+    BookFormat format,
+  ) async {
+    if (format == BookFormat.txt) {
+      return _buildTxtText(file);
+    }
+
+    if (format == BookFormat.fb2) {
+      return _buildFb2Text(file);
+    }
+
+    final List<int>? bytes = await _readFileBytes(file);
+    if (bytes == null) {
+      return '';
+    }
+
+    return _buildEpubText(bytes);
+  }
+
+  Future<String> _readBookTextFromFile(File file, BookFormat format) async {
+    if (format == BookFormat.txt) {
+      return utf8.decode(await file.readAsBytes(), allowMalformed: true);
+    }
+
+    if (format == BookFormat.fb2) {
+      final StringBuffer buffer = StringBuffer();
+      await _appendFb2TextFromStream(
+        file.openRead().transform(const Utf8Decoder(allowMalformed: true)),
+        buffer,
+      );
+      return buffer.toString();
+    }
+
+    return _buildEpubText(await file.readAsBytes());
   }
 
   Future<List<int>?> _readFileBytes(PlatformFile file) async {
@@ -105,7 +171,9 @@ class BookReaderService {
 
     if (path != null) {
       await _appendFb2TextFromStream(
-        File(path).openRead().transform(const Utf8Decoder(allowMalformed: true)),
+        File(
+          path,
+        ).openRead().transform(const Utf8Decoder(allowMalformed: true)),
         buffer,
       );
       return buffer.toString();
@@ -116,10 +184,7 @@ class BookReaderService {
       return '';
     }
 
-    _appendFb2TextFromString(
-      utf8.decode(bytes, allowMalformed: true),
-      buffer,
-    );
+    _appendFb2TextFromString(utf8.decode(bytes, allowMalformed: true), buffer);
     return buffer.toString();
   }
 
@@ -127,10 +192,7 @@ class BookReaderService {
     final book = await EpubReader.readBook(bytes);
     final chunks = <String>[];
 
-    _appendChapterText(
-      chapters: book.Chapters,
-      chunks: chunks,
-    );
+    _appendChapterText(chapters: book.Chapters, chunks: chunks);
 
     if (chunks.isNotEmpty) {
       return chunks.join('\n\n');
@@ -181,10 +243,7 @@ class BookReaderService {
         }
       }
 
-      _appendChapterText(
-        chapters: chapter.SubChapters,
-        chunks: chunks,
-      );
+      _appendChapterText(chapters: chapter.SubChapters, chunks: chunks);
     }
   }
 
