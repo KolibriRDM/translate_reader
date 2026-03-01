@@ -2,12 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:translate_reader/features/reader/application/reading_session_store.dart';
 import 'package:translate_reader/features/reader/domain/book_pages_util.dart';
 import 'package:translate_reader/features/reader/domain/book_text_formatter.dart';
 import 'package:translate_reader/features/reader/domain/models/book_content.dart';
 import 'package:translate_reader/features/reader/domain/models/reading_session.dart';
 import 'package:translate_reader/features/translation/application/translator_service.dart';
+import 'package:translate_reader/features/translation/application/vocabulary_service.dart';
 
 class ReaderBookPage extends StatefulWidget {
   const ReaderBookPage({
@@ -34,6 +36,7 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
   static const double _tapMaxDistance = 12;
 
   final TranslatorService _translatorService = TranslatorService();
+  final VocabularyService _vocabularyService = VocabularyService.instance;
   final BookTextFormatter _formatter = BookTextFormatter();
   final BookPaginator _paginator = BookPaginator();
 
@@ -301,7 +304,9 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     final double maxScrollExtent = notification.metrics.maxScrollExtent;
     final double progress = maxScrollExtent <= 0
         ? 0
-        : (notification.metrics.pixels / maxScrollExtent).clamp(0, 1).toDouble();
+        : (notification.metrics.pixels / maxScrollExtent)
+              .clamp(0, 1)
+              .toDouble();
     final int page = pageCount <= 1
         ? 0
         : (progress * (pageCount - 1)).round().clamp(0, pageCount - 1);
@@ -456,6 +461,11 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     final String cacheKey = wordHit.word.toLowerCase();
     final String? cachedTranslation = _translationCache[cacheKey];
 
+    final bool isSaved = await _vocabularyService.isWordSaved(wordHit.word);
+    if (!mounted || requestId != _tapTranslationRequestId) {
+      return;
+    }
+
     setState(() {
       _tapTranslationState = _TapTranslationState(
         pageIndex: pageIndex,
@@ -466,6 +476,7 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
         maxHeight: overlayMaxHeight,
         translation: cachedTranslation,
         isLoading: cachedTranslation == null,
+        isSavedToVocabulary: isSaved,
       );
     });
 
@@ -496,6 +507,7 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
       _tapTranslationState = currentState.copyWith(
         translation: translation,
         isLoading: false,
+        isSavedToVocabulary: currentState.isSavedToVocabulary,
       );
     });
   }
@@ -521,6 +533,31 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
 
     setState(() {
       _tapTranslationState = null;
+    });
+  }
+
+  Future<void> _toggleVocabularyWord(_TapTranslationState state) async {
+    if (state.translation == null || !mounted) {
+      return;
+    }
+
+    if (state.isSavedToVocabulary) {
+      await _vocabularyService.removeWord(state.word);
+    } else {
+      await _vocabularyService.addWord(
+        word: state.word,
+        translation: state.translation!,
+      );
+    }
+
+    if (!mounted || _tapTranslationState == null) {
+      return;
+    }
+
+    setState(() {
+      _tapTranslationState = _tapTranslationState!.copyWith(
+        isSavedToVocabulary: !state.isSavedToVocabulary,
+      );
     });
   }
 
@@ -682,49 +719,88 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
         left: left,
         top: top,
         width: popupWidth,
-        child: IgnorePointer(
-          child: Material(
-            elevation: 10,
-            color: Colors.transparent,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: appearance.chromeColor,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: appearance.borderColor),
-                boxShadow: <BoxShadow>[
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.08),
-                    blurRadius: 16,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    state.word,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: appearance.textColor,
-                      fontWeight: FontWeight.w700,
+        child: Material(
+          elevation: 10,
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: appearance.chromeColor,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: appearance.borderColor),
+              boxShadow: <BoxShadow>[
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.08),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        state.word,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: appearance.textColor,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    state.isLoading
-                        ? 'Перевод...'
-                        : (state.translation ??
-                              'Не удалось выполнить перевод.'),
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: appearance.textColor.withValues(alpha: 0.9),
+                    if (!state.isLoading && state.translation != null)
+                      GestureDetector(
+                        onTap: () => _toggleVocabularyWord(state),
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 4),
+                          child: SvgPicture.asset(
+                            state.isSavedToVocabulary
+                                ? 'assets/icons/favourite_added.svg'
+                                : 'assets/icons/favourite.svg',
+                            width: 20,
+                            height: 20,
+                            colorFilter: ColorFilter.mode(
+                              state.isSavedToVocabulary
+                                  ? appearance.accentColor
+                                  : appearance.textColor.withValues(alpha: 0.6),
+                              BlendMode.srcIn,
+                            ),
+                          ),
+                        ),
+                      ),
+                    GestureDetector(
+                      onTap: _clearTapTranslation,
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 4),
+                        child: SvgPicture.asset(
+                          'assets/icons/close.svg',
+                          width: 20,
+                          height: 20,
+                          colorFilter: ColorFilter.mode(
+                            appearance.textColor.withValues(alpha: 0.6),
+                            BlendMode.srcIn,
+                          ),
+                        ),
+                      ),
                     ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  state.isLoading
+                      ? 'Перевод...'
+                      : (state.translation ?? 'Не удалось выполнить перевод.'),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: appearance.textColor.withValues(alpha: 0.9),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
@@ -869,11 +945,15 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
                           child: Builder(
                             builder: (BuildContext context) {
                               return RichText(
-                                text: TextSpan(text: pageText, style: textStyle),
+                                text: TextSpan(
+                                  text: pageText,
+                                  style: textStyle,
+                                ),
                                 textDirection: textDirection,
                                 textScaler: textScaler,
-                                selectionRegistrar:
-                                    SelectionContainer.maybeOf(context),
+                                selectionRegistrar: SelectionContainer.maybeOf(
+                                  context,
+                                ),
                                 selectionColor: appearance.accentColor
                                     .withValues(alpha: 0.28),
                               );
@@ -941,7 +1021,9 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
                   textDirection: textDirection,
                   textScaler: textScaler,
                   selectionRegistrar: SelectionContainer.maybeOf(context),
-                  selectionColor: appearance.accentColor.withValues(alpha: 0.28),
+                  selectionColor: appearance.accentColor.withValues(
+                    alpha: 0.28,
+                  ),
                 );
               },
             ),
@@ -1092,7 +1174,10 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
                 ],
               ),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 16,
+                ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
@@ -1177,22 +1262,46 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
           IconButton(
             onPressed: _showLayoutModePicker,
             tooltip: 'Режим чтения',
-            icon: Icon(_layoutModeIcon(_layoutMode)),
+            icon: SvgPicture.asset(
+              _layoutModeIcon(_layoutMode),
+              colorFilter: ColorFilter.mode(
+                appearance.textColor,
+                BlendMode.srcIn,
+              ),
+            ),
           ),
           IconButton(
             onPressed: _showAppearancePicker,
             tooltip: 'Цвет фона',
-            icon: const Icon(Icons.palette_outlined),
+            icon: SvgPicture.asset(
+              'assets/icons/pallete.svg',
+              colorFilter: ColorFilter.mode(
+                appearance.textColor,
+                BlendMode.srcIn,
+              ),
+            ),
           ),
           IconButton(
             onPressed: () => _changeFontSize(-2),
             tooltip: 'Уменьшить шрифт',
-            icon: const Icon(Icons.text_decrease),
+            icon: SvgPicture.asset(
+              'assets/icons/font_down.svg',
+              colorFilter: ColorFilter.mode(
+                appearance.textColor,
+                BlendMode.srcIn,
+              ),
+            ),
           ),
           IconButton(
             onPressed: () => _changeFontSize(2),
             tooltip: 'Увеличить шрифт',
-            icon: const Icon(Icons.text_increase),
+            icon: SvgPicture.asset(
+              'assets/icons/font_up.svg',
+              colorFilter: ColorFilter.mode(
+                appearance.textColor,  
+                BlendMode.srcIn,
+              ),
+            ),
           ),
         ],
       ),
@@ -1240,7 +1349,8 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
           }
 
           final int pageCount = _pages.isEmpty ? 1 : _pages.length;
-          final Widget readerBody = _layoutMode == ReaderLayoutMode.scrollVertical
+          final Widget readerBody =
+              _layoutMode == ReaderLayoutMode.scrollVertical
               ? _buildContinuousReader(
                   context: context,
                   textWidth: textWidth,
@@ -1325,6 +1435,7 @@ class _TapTranslationState {
     required this.maxHeight,
     required this.translation,
     required this.isLoading,
+    this.isSavedToVocabulary = false,
   });
 
   final int pageIndex;
@@ -1335,8 +1446,13 @@ class _TapTranslationState {
   final double maxHeight;
   final String? translation;
   final bool isLoading;
+  final bool isSavedToVocabulary;
 
-  _TapTranslationState copyWith({String? translation, bool? isLoading}) {
+  _TapTranslationState copyWith({
+    String? translation,
+    bool? isLoading,
+    bool? isSavedToVocabulary,
+  }) {
     return _TapTranslationState(
       pageIndex: pageIndex,
       word: word,
@@ -1346,6 +1462,7 @@ class _TapTranslationState {
       maxHeight: maxHeight,
       translation: translation ?? this.translation,
       isLoading: isLoading ?? this.isLoading,
+      isSavedToVocabulary: isSavedToVocabulary ?? this.isSavedToVocabulary,
     );
   }
 }
@@ -1538,14 +1655,18 @@ class _ReaderLayoutModeSheet extends StatelessWidget {
                           Container(
                             width: 44,
                             height: 44,
+                            padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
                               color: appearance.pageColor,
                               borderRadius: BorderRadius.circular(14),
                               border: Border.all(color: appearance.borderColor),
                             ),
-                            child: Icon(
+                            child: SvgPicture.asset(
                               _layoutModeIcon(mode),
-                              color: appearance.textColor,
+                              colorFilter: ColorFilter.mode(
+                                appearance.textColor,
+                                BlendMode.srcIn,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 14),
@@ -1556,23 +1677,21 @@ class _ReaderLayoutModeSheet extends StatelessWidget {
                               children: <Widget>[
                                 Text(
                                   mode.label,
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.titleMedium?.copyWith(
-                                    color: appearance.textColor,
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                                  style: Theme.of(context).textTheme.titleMedium
+                                      ?.copyWith(
+                                        color: appearance.textColor,
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
                                   _layoutModeDescription(mode),
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.bodySmall?.copyWith(
-                                    color: appearance.textColor.withValues(
-                                      alpha: 0.72,
-                                    ),
-                                  ),
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        color: appearance.textColor.withValues(
+                                          alpha: 0.72,
+                                        ),
+                                      ),
                                 ),
                               ],
                             ),
@@ -1792,12 +1911,12 @@ class _ReaderAppearance {
   final Color accentColor;
 }
 
-IconData _layoutModeIcon(ReaderLayoutMode mode) {
+String _layoutModeIcon(ReaderLayoutMode mode) {
   switch (mode) {
     case ReaderLayoutMode.pagedHorizontal:
-      return Icons.menu_book_outlined;
+      return 'assets/icons/book_pages.svg';
     case ReaderLayoutMode.scrollVertical:
-      return Icons.view_agenda_outlined;
+      return 'assets/icons/book_plate.svg';
   }
 }
 

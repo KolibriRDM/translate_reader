@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 24 24" width="24" height="24"
+     color="currentColor" fill="none" stroke="currentColor"
+     stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <g transform="translate(-2,0)">
+    <path d="M19 18L15.6247 9.15847C14.0574 5.05282 13.2737 3 12 3C10.7263 3 9.94261 5.05282 8.37527 9.15847L5 18" />
+    <path d="M8 11H16" />
+    <g transform="translate(10,0)">
+      <path d="M9 5C9.58984 4.39316 11.1597 2 12 2C12.8403 2 14.4102 4.39316 15 5" />
+      <path d="M12 2.23145V12" />
+    </g>
+  </g>
+</svg>

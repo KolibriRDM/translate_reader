@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 24 24" width="24" height="24"
+     color="currentColor" fill="none" stroke="currentColor"
+     stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <g transform="translate(-2,0)">
+    <path d="M19 18L15.6247 9.15847C14.0574 5.05282 13.2737 3 12 3C10.7263 3 9.94261 5.05282 8.37527 9.15847L5 18" />
+    <path d="M8 11H16" />
+    <g transform="translate(10,0)">
+      <!-- шляпка вниз, примерно на том же месте, где была вверх -->
+      <path d="M9 9C9.58984 9.60684 11.1597 12 12 12C12.8403 12 14.4102 9.60684 15 9" />
+      <path d="M12 2.23145V12" />
+    </g>
+  </g>
+</svg>

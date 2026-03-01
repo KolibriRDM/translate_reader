@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:translate_reader/features/reader/application/book_reader_service.dart';
 import 'package:translate_reader/features/reader/application/reading_session_store.dart';
 import 'package:translate_reader/features/reader/domain/models/book_content.dart';
 import 'package:translate_reader/features/reader/domain/models/reading_session.dart';
 import 'package:translate_reader/features/reader/presentation/reader_book_page.dart';
+import 'package:translate_reader/features/translation/presentation/vocabulary_page.dart';
 
 class ReaderHomePage extends StatefulWidget {
   const ReaderHomePage({
@@ -151,21 +153,31 @@ class _ReaderHomePageState extends State<ReaderHomePage> {
                   ),
                 ),
               ),
+              const SizedBox(height: 14),
+              _VocabularyButton(
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (BuildContext context) => const VocabularyPage(),
+                    ),
+                  );
+                },
+              ),
               const SizedBox(height: 20),
               Wrap(
                 spacing: 10,
                 runSpacing: 10,
                 children: const <Widget>[
                   _FeatureBadge(
-                    icon: Icons.auto_stories_rounded,
+                    icon: 'assets/icons/book.svg',
                     label: 'Удобное чтение',
                   ),
                   _FeatureBadge(
-                    icon: Icons.touch_app_rounded,
+                    icon: 'assets/icons/tap_translate.svg',
                     label: 'Перевод по тапу',
                   ),
                   _FeatureBadge(
-                    icon: Icons.text_fields_rounded,
+                    icon: 'assets/icons/font.svg',
                     label: 'Гибкий размер шрифта',
                   ),
                 ],
@@ -351,14 +363,19 @@ class _HeroSection extends StatelessWidget {
           Container(
             width: 52,
             height: 52,
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: colorScheme.onPrimaryContainer.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(16),
             ),
-            child: Icon(
-              Icons.menu_book_rounded,
-              color: colorScheme.onPrimaryContainer,
-              size: 28,
+            child: SvgPicture.asset(
+              'assets/icons/start_reading.svg',
+              width: 28,
+              height: 28,
+              colorFilter: ColorFilter.mode(
+                colorScheme.onPrimaryContainer,
+                BlendMode.srcIn,
+              ),
             ),
           ),
           const SizedBox(height: 18),
@@ -389,14 +406,30 @@ class _HeroSection extends StatelessWidget {
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.file_open_rounded),
+                : SvgPicture.asset(
+                    'assets/icons/import_book.svg',
+                    width: 20,
+                    height: 20,
+                    colorFilter: ColorFilter.mode(
+                      colorScheme.onPrimaryContainer,
+                      BlendMode.srcIn,
+                    ),
+                  ),
             label: Text(isLoading ? 'Открываю...' : 'Открыть книгу'),
           ),
           if (hasSession) const SizedBox(height: 12),
           if (hasSession)
             OutlinedButton.icon(
               onPressed: onContinueReading,
-              icon: const Icon(Icons.play_circle_outline_rounded),
+              icon: SvgPicture.asset(
+                'assets/icons/continue.svg',
+                width: 20,
+                height: 20,
+                colorFilter: ColorFilter.mode(
+                  colorScheme.onPrimaryContainer,
+                  BlendMode.srcIn,
+                ),
+              ),
               label: const Text('Продолжить чтение'),
             ),
         ],
@@ -452,7 +485,7 @@ class _ThemeSwitcher extends StatelessWidget {
 class _FeatureBadge extends StatelessWidget {
   const _FeatureBadge({required this.icon, required this.label});
 
-  final IconData icon;
+  final String icon;
   final String label;
 
   @override
@@ -468,7 +501,12 @@ class _FeatureBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(icon, size: 18, color: colorScheme.primary),
+          SvgPicture.asset(
+            icon,
+            width: 18,
+            height: 18,
+            colorFilter: ColorFilter.mode(colorScheme.primary, BlendMode.srcIn),
+          ),
           const SizedBox(width: 8),
           Text(label),
         ],
@@ -533,11 +571,16 @@ class _StatusPill extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          Icon(
-            Icons.bookmark_added_rounded,
-            size: 18,
-            color: colorScheme.onTertiaryContainer,
+          SvgPicture.asset(
+            'assets/icons/bookmark.svg',
+            width: 18,
+            height: 18,
+            colorFilter: ColorFilter.mode(
+              colorScheme.onTertiaryContainer,
+              BlendMode.srcIn,
+            ),
           ),
+
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -556,4 +599,80 @@ class _MetaItem {
 
   final String label;
   final String value;
+}
+
+class _VocabularyButton extends StatelessWidget {
+  const _VocabularyButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colorScheme = theme.colorScheme;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(22),
+      child: Ink(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        decoration: BoxDecoration(
+          color: colorScheme.secondaryContainer.withValues(alpha: 0.72),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+            color: colorScheme.secondary.withValues(alpha: 0.22),
+          ),
+        ),
+        child: Row(
+          children: <Widget>[
+            Container(
+              padding: EdgeInsets.all(10),
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: colorScheme.secondary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: SvgPicture.asset(
+                'assets/icons/vocabulary.svg',
+                width: 24,
+                height: 24,
+                colorFilter: ColorFilter.mode(
+                  colorScheme.secondary,
+                  BlendMode.srcIn,
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    'Мой словарик',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Сохранённые слова и переводы',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSecondaryContainer.withValues(
+                        alpha: 0.72,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: colorScheme.onSecondaryContainer.withValues(alpha: 0.5),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
