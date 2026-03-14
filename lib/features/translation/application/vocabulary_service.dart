@@ -47,4 +47,39 @@ class VocabularyService {
   Future<List<VocabularyEntry>> getAllWords() {
     return _db.getAllWords();
   }
+
+  /// Добавляет фразу в словарик. Возвращает true, если фраза добавлена.
+  Future<bool> addPhrase({
+    required String phrase,
+    required String translation,
+  }) async {
+    final String normalized = phrase.toLowerCase();
+    final bool alreadySaved = await _db.isPhraseSaved(normalized);
+    if (alreadySaved) {
+      return false;
+    }
+
+    await _db.addPhrase(phrase: normalized, translation: translation);
+    return true;
+  }
+
+  /// Удаляет фразу из словарика по тексту.
+  Future<void> removePhrase(String phrase) async {
+    await _db.removePhraseByText(phrase.toLowerCase());
+  }
+
+  /// Удаляет фразу из словарика по id.
+  Future<void> removePhraseById(int id) async {
+    await _db.removePhraseById(id);
+  }
+
+  /// Проверяет, сохранена ли фраза в словарике.
+  Future<bool> isPhraseSaved(String phrase) {
+    return _db.isPhraseSaved(phrase.toLowerCase());
+  }
+
+  /// Поток всех фраз из словарика.
+  Stream<List<SavedPhrase>> watchAllPhrases() {
+    return _db.watchAllPhrases();
+  }
 }

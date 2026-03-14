@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -277,15 +278,19 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
       final int sliceStart = block.start < start ? start : block.start;
       final int sliceEnd = block.end > end ? end : block.end;
       if (sliceStart < sliceEnd) {
-        children.add(
-          TextSpan(
-            text: _bookText.substring(sliceStart, sliceEnd),
-            style: _textStyleForBlock(
-              block: block,
-              textStyle: textStyle,
-              headingColor: headingColor,
-            ),
-          ),
+        final TextStyle blockStyle = _textStyleForBlock(
+          block: block,
+          textStyle: textStyle,
+          headingColor: headingColor,
+        );
+        _appendInlineStyledSpans(
+          children: children,
+          text: _bookText,
+          rangeStart: sliceStart,
+          rangeEnd: sliceEnd,
+          baseStyle: blockStyle,
+          inlineSpans: block.inlineSpans,
+          blockTextStart: block.start,
         );
       }
       cursor = sliceEnd;
@@ -305,14 +310,96 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     required TextStyle textStyle,
     required Color headingColor,
   }) {
-    return TextSpan(
-      text: block.text,
-      style: _textStyleForBlock(
-        block: block,
-        textStyle: textStyle,
-        headingColor: headingColor,
-      ),
+    final TextStyle blockStyle = _textStyleForBlock(
+      block: block,
+      textStyle: textStyle,
+      headingColor: headingColor,
     );
+
+    if (block.inlineSpans.isEmpty) {
+      return TextSpan(text: block.text, style: blockStyle);
+    }
+
+    final List<InlineSpan> children = <InlineSpan>[];
+    _appendInlineStyledSpans(
+      children: children,
+      text: block.text,
+      rangeStart: 0,
+      rangeEnd: block.text.length,
+      baseStyle: blockStyle,
+      inlineSpans: block.inlineSpans,
+      blockTextStart: 0,
+    );
+    return TextSpan(style: blockStyle, children: children);
+  }
+
+  /// Разбивает диапазон текста на TextSpan-ы с учётом inline-стилей.
+  void _appendInlineStyledSpans({
+    required List<InlineSpan> children,
+    required String text,
+    required int rangeStart,
+    required int rangeEnd,
+    required TextStyle baseStyle,
+    required List<BookInlineSpan> inlineSpans,
+    required int blockTextStart,
+  }) {
+    if (inlineSpans.isEmpty) {
+      children.add(
+        TextSpan(
+          text: text.substring(rangeStart, rangeEnd),
+          style: baseStyle,
+        ),
+      );
+      return;
+    }
+
+    int cursor = rangeStart;
+    for (final BookInlineSpan span in inlineSpans) {
+      final int spanStart = span.start + blockTextStart;
+      final int spanEnd = span.end + blockTextStart;
+
+      if (spanEnd <= rangeStart || spanStart >= rangeEnd) {
+        continue;
+      }
+
+      final int effectiveStart = spanStart < rangeStart ? rangeStart : spanStart;
+      final int effectiveEnd = spanEnd > rangeEnd ? rangeEnd : spanEnd;
+
+      if (cursor < effectiveStart) {
+        children.add(
+          TextSpan(
+            text: text.substring(cursor, effectiveStart),
+            style: baseStyle,
+          ),
+        );
+      }
+
+      children.add(
+        TextSpan(
+          text: text.substring(effectiveStart, effectiveEnd),
+          style: _applyInlineStyle(baseStyle, span.style),
+        ),
+      );
+      cursor = effectiveEnd;
+    }
+
+    if (cursor < rangeEnd) {
+      children.add(
+        TextSpan(
+          text: text.substring(cursor, rangeEnd),
+          style: baseStyle,
+        ),
+      );
+    }
+  }
+
+  TextStyle _applyInlineStyle(TextStyle baseStyle, BookInlineStyle style) {
+    switch (style) {
+      case BookInlineStyle.emphasis:
+        return baseStyle.copyWith(fontStyle: FontStyle.italic);
+      case BookInlineStyle.strong:
+        return baseStyle.copyWith(fontWeight: FontWeight.w700);
+    }
   }
 
   TextStyle _textStyleForBlock({
@@ -320,18 +407,50 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
     required TextStyle textStyle,
     required Color headingColor,
   }) {
-    if (!block.isHeading) {
-      return textStyle;
+    switch (block.type) {
+      case BookBlockType.heading:
+        final double scaleFactor = block.level <= 1
+            ? 1.5
+            : block.level == 2
+                ? 1.25
+                : block.level == 3
+                    ? 1.1
+                    : 1.0;
+        return _readerFontTextStyle(
+          family: _fontFamily,
+          baseStyle: textStyle.copyWith(
+            color: headingColor,
+            fontWeight: FontWeight.w700,
+            fontSize: (textStyle.fontSize ?? _fontSize) * scaleFactor,
+            letterSpacing: block.level <= 2 ? 0.25 : 0.1,
+            height: 1.3,
+          ),
+        );
+      case BookBlockType.epigraph:
+        return textStyle.copyWith(fontStyle: FontStyle.italic);
+      case BookBlockType.cite:
+        return textStyle.copyWith(fontStyle: FontStyle.italic);
+      case BookBlockType.paragraph:
+        return textStyle;
     }
+  }
 
-    return _readerFontTextStyle(
-      family: _fontFamily,
-      baseStyle: textStyle.copyWith(
-        color: headingColor,
-        fontWeight: FontWeight.w700,
-        letterSpacing: block.level <= 2 ? 0.25 : 0.1,
-      ),
-    );
+  EdgeInsetsGeometry _paddingForBlockType(FormattedBookBlock block) {
+    switch (block.type) {
+      case BookBlockType.heading:
+        if (block.level <= 1) {
+          return const EdgeInsets.only(top: 28, bottom: 12);
+        }
+        if (block.level == 2) {
+          return const EdgeInsets.only(top: 20, bottom: 8);
+        }
+        return const EdgeInsets.only(top: 14, bottom: 6);
+      case BookBlockType.epigraph:
+      case BookBlockType.cite:
+        return const EdgeInsets.only(left: 16, top: 2, bottom: 2);
+      case BookBlockType.paragraph:
+        return EdgeInsets.zero;
+    }
   }
 
   void _repaginate({
@@ -728,6 +847,11 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
   }
 
   void _handlePointerDown(PointerDownEvent event) {
+    // Игнорируем правую кнопку мыши — она открывает контекстное меню.
+    if (event.buttons == kSecondaryMouseButton) {
+      return;
+    }
+
     _activePointer = event.pointer;
     _pointerDownPosition = event.localPosition;
     _pointerDownTimestamp = event.timeStamp;
@@ -1215,9 +1339,7 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
       textStyle: textStyle,
       headingColor: appearance.accentColor,
     );
-    final EdgeInsetsGeometry padding = block.isHeading
-        ? const EdgeInsets.only(top: 8, bottom: 10)
-        : EdgeInsets.zero;
+    final EdgeInsetsGeometry padding = _paddingForBlockType(block);
 
     return Padding(
       padding: padding,
@@ -1244,8 +1366,12 @@ class _ReaderBookPageState extends State<ReaderBookPage> {
             },
             child: Builder(
               builder: (BuildContext context) {
+                final TextAlign textAlign = block.isHeading
+                    ? TextAlign.center
+                    : TextAlign.start;
                 return RichText(
                   text: contentSpan,
+                  textAlign: textAlign,
                   textDirection: textDirection,
                   textScaler: textScaler,
                   selectionRegistrar: SelectionContainer.maybeOf(context),
@@ -1718,7 +1844,7 @@ class _TapTranslationState {
   }
 }
 
-class _TranslationSheet extends StatelessWidget {
+class _TranslationSheet extends StatefulWidget {
   const _TranslationSheet({
     required this.sourceText,
     required this.translationFuture,
@@ -1730,7 +1856,53 @@ class _TranslationSheet extends StatelessWidget {
   final _ReaderAppearance appearance;
 
   @override
+  State<_TranslationSheet> createState() => _TranslationSheetState();
+}
+
+class _TranslationSheetState extends State<_TranslationSheet> {
+  final VocabularyService _vocabularyService = VocabularyService.instance;
+  bool _isSaved = false;
+  String? _resolvedTranslation;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkSavedState();
+  }
+
+  Future<void> _checkSavedState() async {
+    final bool saved = await _vocabularyService.isPhraseSaved(widget.sourceText);
+    if (mounted) {
+      setState(() {
+        _isSaved = saved;
+      });
+    }
+  }
+
+  Future<void> _toggleSave() async {
+    final String? translation = _resolvedTranslation;
+    if (translation == null) return;
+
+    if (_isSaved) {
+      await _vocabularyService.removePhrase(widget.sourceText);
+    } else {
+      await _vocabularyService.addPhrase(
+        phrase: widget.sourceText,
+        translation: translation,
+      );
+    }
+
+    if (mounted) {
+      setState(() {
+        _isSaved = !_isSaved;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final _ReaderAppearance appearance = widget.appearance;
+
     return Padding(
       padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top + 12),
       child: Container(
@@ -1765,7 +1937,7 @@ class _TranslationSheet extends StatelessWidget {
                   children: <Widget>[
                     Expanded(
                       child: Text(
-                        'Перевод слова',
+                        'Перевод текста',
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           color: appearance.textColor,
                         ),
@@ -1788,7 +1960,7 @@ class _TranslationSheet extends StatelessWidget {
                     border: Border.all(color: appearance.borderColor),
                   ),
                   child: Text(
-                    sourceText,
+                    widget.sourceText,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       color: appearance.textColor,
                     ),
@@ -1796,7 +1968,7 @@ class _TranslationSheet extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 FutureBuilder<String>(
-                  future: translationFuture,
+                  future: widget.translationFuture,
                   builder:
                       (BuildContext context, AsyncSnapshot<String> snapshot) {
                         if (snapshot.connectionState != ConnectionState.done) {
@@ -1820,20 +1992,57 @@ class _TranslationSheet extends StatelessWidget {
                           );
                         }
 
+                        final String translation =
+                            snapshot.data ?? 'Не удалось выполнить перевод.';
+                        if (_resolvedTranslation == null) {
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (mounted && _resolvedTranslation == null) {
+                              setState(() {
+                                _resolvedTranslation = translation;
+                              });
+                            }
+                          });
+                        }
+
                         return Text(
-                          snapshot.data ?? 'Не удалось выполнить перевод.',
+                          translation,
                           style: Theme.of(context).textTheme.bodyLarge
                               ?.copyWith(color: appearance.textColor),
                         );
                       },
                 ),
                 const SizedBox(height: 16),
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: Text(
-                    'Закрыть',
-                    style: TextStyle(color: appearance.accentColor),
-                  ),
+                Row(
+                  children: <Widget>[
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: Text(
+                        'Закрыть',
+                        style: TextStyle(color: appearance.accentColor),
+                      ),
+                    ),
+                    const Spacer(),
+                    if (_resolvedTranslation != null)
+                      GestureDetector(
+                        onTap: _toggleSave,
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: SvgPicture.asset(
+                            _isSaved
+                                ? 'assets/icons/favourite_added.svg'
+                                : 'assets/icons/favourite.svg',
+                            width: 24,
+                            height: 24,
+                            colorFilter: ColorFilter.mode(
+                              _isSaved
+                                  ? appearance.accentColor
+                                  : appearance.textColor.withValues(alpha: 0.6),
+                              BlendMode.srcIn,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ],
             ),

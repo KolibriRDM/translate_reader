@@ -15,6 +15,14 @@ class VocabularyEntries extends Table {
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+/// Таблица сохранённых фраз/предложений с переводом.
+class SavedPhrases extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get phrase => text()();
+  TextColumn get translation => text()();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+}
+
 /// Таблица последних открытых книг и сохранённой позиции чтения.
 class RecentBooks extends Table {
   TextColumn get path => text()();
@@ -34,7 +42,7 @@ class RecentBooks extends Table {
   Set<Column<Object>> get primaryKey => <Column<Object>>{path};
 }
 
-@DriftDatabase(tables: [VocabularyEntries, RecentBooks])
+@DriftDatabase(tables: [VocabularyEntries, SavedPhrases, RecentBooks])
 class AppDatabase extends _$AppDatabase {
   AppDatabase._() : super(_openConnection());
 
@@ -46,7 +54,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -59,6 +67,9 @@ class AppDatabase extends _$AppDatabase {
       }
       if (from >= 2 && from < 3) {
         await m.addColumn(recentBooks, recentBooks.fontFamily);
+      }
+      if (from < 4) {
+        await m.createTable(savedPhrases);
       }
     },
   );
@@ -101,6 +112,50 @@ class AppDatabase extends _$AppDatabase {
   /// Возвращает все слова из словарика.
   Future<List<VocabularyEntry>> getAllWords() {
     final query = select(vocabularyEntries)
+      ..orderBy([
+        (t) => OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc),
+      ]);
+    return query.get();
+  }
+
+  /// Добавляет фразу и перевод в словарик.
+  Future<int> addPhrase({required String phrase, required String translation}) {
+    return into(savedPhrases).insert(
+      SavedPhrasesCompanion.insert(phrase: phrase, translation: translation),
+    );
+  }
+
+  /// Удаляет фразу из словарика по id.
+  Future<int> removePhraseById(int id) {
+    return (delete(savedPhrases)..where((t) => t.id.equals(id))).go();
+  }
+
+  /// Удаляет фразу из словарика по тексту.
+  Future<int> removePhraseByText(String phrase) {
+    return (delete(savedPhrases)..where((t) => t.phrase.equals(phrase))).go();
+  }
+
+  /// Проверяет, сохранена ли фраза в словарике.
+  Future<bool> isPhraseSaved(String phrase) async {
+    final query = select(savedPhrases)
+      ..where((t) => t.phrase.equals(phrase))
+      ..limit(1);
+    final results = await query.get();
+    return results.isNotEmpty;
+  }
+
+  /// Возвращает поток всех фраз, отсортированных по дате добавления.
+  Stream<List<SavedPhrase>> watchAllPhrases() {
+    final query = select(savedPhrases)
+      ..orderBy([
+        (t) => OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc),
+      ]);
+    return query.watch();
+  }
+
+  /// Возвращает все фразы из словарика.
+  Future<List<SavedPhrase>> getAllPhrases() {
+    final query = select(savedPhrases)
       ..orderBy([
         (t) => OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc),
       ]);

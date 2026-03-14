@@ -246,10 +246,6 @@ class BookReaderService {
     }
 
     for (final MapEntry<String, EpubTextContentFile> entry in htmlMap.entries) {
-      if (_isNavigationFile(entry.key)) {
-        continue;
-      }
-
       final String? html = entry.value.Content;
       if (html == null || html.trim().isEmpty) {
         continue;
@@ -277,17 +273,19 @@ class BookReaderService {
 
     for (final EpubChapter chapter in chapters) {
       final String chapterTitle = _normalizeBlockText(chapter.Title ?? '');
+
       final List<BookBlock> chapterBlocks = _extractHtmlBlocks(
         chapter.HtmlContent ?? '',
         baseLevel: depth,
       );
-      final bool hasMatchingHeading =
-          chapterTitle.isNotEmpty &&
-          chapterBlocks.isNotEmpty &&
-          chapterBlocks.first.isHeading &&
-          _sameNormalizedText(chapterBlocks.first.text, chapterTitle);
 
-      if (chapterTitle.isNotEmpty && !hasMatchingHeading) {
+      // Убираем дублирующиеся заголовки из начала главы
+      _removeLeadingDuplicateHeadings(chapterBlocks, chapterTitle);
+
+      if (chapterTitle.isNotEmpty &&
+          (chapterBlocks.isEmpty ||
+              !chapterBlocks.first.isHeading ||
+              !_sameNormalizedText(chapterBlocks.first.text, chapterTitle))) {
         _addBookBlock(
           blocks: blocks,
           tocEntries: tocEntries,
@@ -403,6 +401,7 @@ class BookReaderService {
     required List<BookBlock> blocks,
     required List<BookTocEntry> tocEntries,
     required int depth,
+    BookBlockType? parentBlockType,
   }) {
     final String name = _xmlName(element);
     switch (name) {
@@ -414,6 +413,7 @@ class BookReaderService {
             blocks: blocks,
             tocEntries: tocEntries,
             depth: depth + 1,
+            parentBlockType: parentBlockType,
           );
         }
         return;
@@ -439,14 +439,41 @@ class BookReaderService {
       case 'p':
       case 'v':
       case 'text-author':
+        final _InlineExtraction extraction = _extractInlineContent(element);
+        final String text = _normalizeBlockText(extraction.text);
+        if (text.isEmpty) return;
         _addBookBlock(
           blocks: blocks,
           tocEntries: tocEntries,
-          text: element.innerText,
+          text: text,
+          type: parentBlockType ?? BookBlockType.paragraph,
+          inlineSpans: _remapInlineSpans(extraction, text),
         );
         return;
       case 'epigraph':
+        for (final xml.XmlElement child
+            in element.children.whereType<xml.XmlElement>()) {
+          _appendFb2BlocksFromElement(
+            child,
+            blocks: blocks,
+            tocEntries: tocEntries,
+            depth: depth,
+            parentBlockType: BookBlockType.epigraph,
+          );
+        }
+        return;
       case 'cite':
+        for (final xml.XmlElement child
+            in element.children.whereType<xml.XmlElement>()) {
+          _appendFb2BlocksFromElement(
+            child,
+            blocks: blocks,
+            tocEntries: tocEntries,
+            depth: depth,
+            parentBlockType: BookBlockType.cite,
+          );
+        }
+        return;
       case 'poem':
       case 'stanza':
         for (final xml.XmlElement child
@@ -456,6 +483,7 @@ class BookReaderService {
             blocks: blocks,
             tocEntries: tocEntries,
             depth: depth,
+            parentBlockType: parentBlockType,
           );
         }
         return;
@@ -467,6 +495,7 @@ class BookReaderService {
             blocks: blocks,
             tocEntries: tocEntries,
             depth: depth,
+            parentBlockType: parentBlockType,
           );
         }
     }
@@ -519,12 +548,15 @@ class BookReaderService {
     required int baseLevel,
   }) {
     final String name = _xmlName(element);
-    if (name == 'head' || name == 'script' || name == 'style') {
+    if (name == 'head' ||
+        name == 'script' ||
+        name == 'style') {
       return;
     }
 
     if (_isHtmlHeadingTag(name)) {
-      final String text = _normalizeBlockText(element.innerText);
+      final _InlineExtraction extraction = _extractInlineContent(element);
+      final String text = _normalizeBlockText(extraction.text);
       if (text.isEmpty) {
         return;
       }
@@ -534,25 +566,60 @@ class BookReaderService {
           text: text,
           type: BookBlockType.heading,
           level: math.max(baseLevel, _htmlHeadingLevel(name)),
+          inlineSpans: _remapInlineSpans(extraction, text),
         ),
       );
       return;
     }
 
-    if (_isHtmlParagraphTag(name)) {
-      final String text = _normalizeBlockText(element.innerText);
+    if (name == 'blockquote') {
+      final _InlineExtraction extraction = _extractInlineContent(element);
+      final String text = _normalizeBlockText(extraction.text);
       if (text.isEmpty) {
         return;
       }
 
-      blocks.add(BookBlock(text: text));
+      blocks.add(
+        BookBlock(
+          text: text,
+          type: BookBlockType.cite,
+          inlineSpans: _remapInlineSpans(extraction, text),
+        ),
+      );
+      return;
+    }
+
+    if (name == 'table') {
+      _appendHtmlTableBlocks(element, blocks: blocks);
+      return;
+    }
+
+    if (_isHtmlParagraphTag(name)) {
+      final _InlineExtraction extraction = _extractInlineContent(element);
+      final String text = _normalizeBlockText(extraction.text);
+      if (text.isEmpty) {
+        return;
+      }
+
+      blocks.add(
+        BookBlock(
+          text: text,
+          inlineSpans: _remapInlineSpans(extraction, text),
+        ),
+      );
       return;
     }
 
     if (_isHtmlContainerTag(name) && !_hasRecognizedHtmlBlockChild(element)) {
-      final String text = _normalizeBlockText(element.innerText);
+      final _InlineExtraction extraction = _extractInlineContent(element);
+      final String text = _normalizeBlockText(extraction.text);
       if (text.isNotEmpty) {
-        blocks.add(BookBlock(text: text));
+        blocks.add(
+          BookBlock(
+            text: text,
+            inlineSpans: _remapInlineSpans(extraction, text),
+          ),
+        );
       }
       return;
     }
@@ -563,13 +630,41 @@ class BookReaderService {
     }
   }
 
+  void _appendHtmlTableBlocks(
+    xml.XmlElement tableElement, {
+    required List<BookBlock> blocks,
+  }) {
+    final Iterable<xml.XmlElement> rows = tableElement.descendants
+        .whereType<xml.XmlElement>()
+        .where((xml.XmlElement e) => _xmlName(e) == 'tr');
+
+    for (final xml.XmlElement row in rows) {
+      final List<String> cells = row.children
+          .whereType<xml.XmlElement>()
+          .where((xml.XmlElement e) {
+            final String n = _xmlName(e);
+            return n == 'td' || n == 'th';
+          })
+          .map((xml.XmlElement cell) => _normalizeBlockText(cell.innerText))
+          .where((String text) => text.isNotEmpty)
+          .toList(growable: false);
+      if (cells.isEmpty) {
+        continue;
+      }
+
+      blocks.add(BookBlock(text: cells.join('\t')));
+    }
+  }
+
   bool _hasRecognizedHtmlBlockChild(xml.XmlElement element) {
     for (final xml.XmlElement child
         in element.children.whereType<xml.XmlElement>()) {
       final String name = _xmlName(child);
       if (_isHtmlHeadingTag(name) ||
           _isHtmlParagraphTag(name) ||
-          _isHtmlContainerTag(name)) {
+          _isHtmlContainerTag(name) ||
+          name == 'table' ||
+          name == 'blockquote') {
         return true;
       }
     }
@@ -589,7 +684,6 @@ class BookReaderService {
   bool _isHtmlParagraphTag(String name) {
     return name == 'p' ||
         name == 'li' ||
-        name == 'blockquote' ||
         name == 'pre' ||
         name == 'dt' ||
         name == 'dd';
@@ -608,11 +702,6 @@ class BookReaderService {
     return int.tryParse(name.substring(1)) ?? 1;
   }
 
-  bool _isNavigationFile(String fileName) {
-    final String normalized = fileName.toLowerCase();
-    return normalized.contains('toc') || normalized.contains('nav');
-  }
-
   void _appendParsedBlocks(
     List<BookBlock> parsedBlocks, {
     required List<BookBlock> blocks,
@@ -625,6 +714,7 @@ class BookReaderService {
         text: block.text,
         type: block.type,
         level: block.level,
+        inlineSpans: block.inlineSpans,
       );
     }
   }
@@ -635,6 +725,7 @@ class BookReaderService {
     required String text,
     BookBlockType type = BookBlockType.paragraph,
     int level = 0,
+    List<BookInlineSpan> inlineSpans = const <BookInlineSpan>[],
   }) {
     final String normalizedText = _normalizeBlockText(text);
     if (normalizedText.isEmpty) {
@@ -645,6 +736,7 @@ class BookReaderService {
       text: normalizedText,
       type: type,
       level: type == BookBlockType.heading ? _clampHeadingLevel(level) : 0,
+      inlineSpans: inlineSpans,
     );
     final int blockIndex = blocks.length;
     blocks.add(block);
@@ -663,6 +755,24 @@ class BookReaderService {
   int _clampHeadingLevel(int level) {
     return level.clamp(1, 6).toInt();
   }
+
+  /// Удаляет из начала списка блоков заголовки, дублирующие название главы.
+  void _removeLeadingDuplicateHeadings(
+    List<BookBlock> blocks,
+    String chapterTitle,
+  ) {
+    if (chapterTitle.isEmpty || blocks.isEmpty) return;
+    // Ищем дубликат среди первых нескольких блоков
+    for (int i = 0; i < blocks.length && i < 5; i++) {
+      if (blocks[i].isHeading &&
+          _sameNormalizedText(blocks[i].text, chapterTitle)) {
+        blocks.removeAt(i);
+        return;
+      }
+    }
+  }
+
+
 
   bool _looksLikeTxtHeading(List<String> lines, String text) {
     if (lines.length > 3 || text.length < 2 || text.length > 96) {
@@ -816,6 +926,152 @@ class BookReaderService {
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
   }
+
+  /// Извлекает текст и позиции inline-стилей (курсив, жирный) из XML-элемента.
+  _InlineExtraction _extractInlineContent(xml.XmlElement element) {
+    final StringBuffer buffer = StringBuffer();
+    final List<BookInlineSpan> spans = <BookInlineSpan>[];
+    _walkInlineNodes(
+      element,
+      buffer: buffer,
+      spans: spans,
+      activeStyles: const <BookInlineStyle>{},
+    );
+    return _InlineExtraction(text: buffer.toString(), spans: spans);
+  }
+
+  void _walkInlineNodes(
+    xml.XmlNode node, {
+    required StringBuffer buffer,
+    required List<BookInlineSpan> spans,
+    required Set<BookInlineStyle> activeStyles,
+  }) {
+    if (node is xml.XmlText) {
+      buffer.write(node.value);
+      return;
+    }
+
+    if (node is xml.XmlElement) {
+      final String name = _xmlName(node);
+      final BookInlineStyle? style = _inlineStyleForTag(name);
+
+      if (style != null && !activeStyles.contains(style)) {
+        final int start = buffer.length;
+        final Set<BookInlineStyle> newActive = <BookInlineStyle>{
+          ...activeStyles,
+          style,
+        };
+        for (final xml.XmlNode child in node.children) {
+          _walkInlineNodes(
+            child,
+            buffer: buffer,
+            spans: spans,
+            activeStyles: newActive,
+          );
+        }
+        final int end = buffer.length;
+        if (end > start) {
+          spans.add(
+            BookInlineSpan(start: start, end: end, style: style),
+          );
+        }
+      } else {
+        for (final xml.XmlNode child in node.children) {
+          _walkInlineNodes(
+            child,
+            buffer: buffer,
+            spans: spans,
+            activeStyles: activeStyles,
+          );
+        }
+      }
+    }
+  }
+
+  BookInlineStyle? _inlineStyleForTag(String name) {
+    switch (name) {
+      case 'em':
+      case 'i':
+      case 'emphasis':
+        return BookInlineStyle.emphasis;
+      case 'strong':
+      case 'b':
+        return BookInlineStyle.strong;
+      default:
+        return null;
+    }
+  }
+
+  /// Пересчитывает позиции inline-спанов после нормализации текста.
+  List<BookInlineSpan> _remapInlineSpans(
+    _InlineExtraction extraction,
+    String normalizedText,
+  ) {
+    if (extraction.spans.isEmpty) {
+      return const <BookInlineSpan>[];
+    }
+
+    final String rawText = extraction.text;
+    // Строим карту: позиция в raw -> позиция в normalized.
+    // Нормализация: \r\n->\n, \n->space, multi-space->single-space, trim.
+    final List<int> rawToNorm = List<int>.filled(rawText.length + 1, -1);
+    final String preNorm = rawText
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n')
+        .replaceAll(RegExp(r'\n+'), ' ');
+
+    int normPos = 0;
+    bool lastWasSpace = true; // Для trim слева
+    for (int i = 0; i < preNorm.length; i++) {
+      final int rawIndex = i < rawText.length ? i : rawText.length;
+      final String ch = preNorm[i];
+      if (ch == ' ' || ch == '\t') {
+        if (!lastWasSpace) {
+          rawToNorm[rawIndex] = normPos;
+          normPos++;
+          lastWasSpace = true;
+        } else {
+          rawToNorm[rawIndex] = normPos;
+        }
+      } else {
+        rawToNorm[rawIndex] = normPos;
+        normPos++;
+        lastWasSpace = false;
+      }
+    }
+    rawToNorm[rawText.length] = normalizedText.length;
+
+    final List<BookInlineSpan> result = <BookInlineSpan>[];
+    for (final BookInlineSpan span in extraction.spans) {
+      final int clampedStart = span.start.clamp(0, rawText.length);
+      final int clampedEnd = span.end.clamp(0, rawText.length);
+      final int newStart = rawToNorm[clampedStart];
+      int newEnd = rawToNorm[clampedEnd];
+      if (newStart < 0 || newEnd < 0 || newStart >= newEnd) {
+        continue;
+      }
+      // Ограничиваем нормализованным текстом
+      if (newEnd > normalizedText.length) {
+        newEnd = normalizedText.length;
+      }
+      if (newStart >= newEnd) continue;
+      result.add(
+        BookInlineSpan(start: newStart, end: newEnd, style: span.style),
+      );
+    }
+
+    return result;
+  }
+}
+
+class _InlineExtraction {
+  const _InlineExtraction({
+    required this.text,
+    this.spans = const <BookInlineSpan>[],
+  });
+
+  final String text;
+  final List<BookInlineSpan> spans;
 }
 
 class _ParsedBookData {

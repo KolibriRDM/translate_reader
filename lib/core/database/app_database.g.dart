@@ -304,6 +304,307 @@ class VocabularyEntriesCompanion extends UpdateCompanion<VocabularyEntry> {
   }
 }
 
+class $SavedPhrasesTable extends SavedPhrases
+    with TableInfo<$SavedPhrasesTable, SavedPhrase> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SavedPhrasesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _phraseMeta = const VerificationMeta('phrase');
+  @override
+  late final GeneratedColumn<String> phrase = GeneratedColumn<String>(
+    'phrase',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _translationMeta = const VerificationMeta(
+    'translation',
+  );
+  @override
+  late final GeneratedColumn<String> translation = GeneratedColumn<String>(
+    'translation',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, phrase, translation, createdAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'saved_phrases';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SavedPhrase> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('phrase')) {
+      context.handle(
+        _phraseMeta,
+        phrase.isAcceptableOrUnknown(data['phrase']!, _phraseMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_phraseMeta);
+    }
+    if (data.containsKey('translation')) {
+      context.handle(
+        _translationMeta,
+        translation.isAcceptableOrUnknown(
+          data['translation']!,
+          _translationMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_translationMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  SavedPhrase map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SavedPhrase(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      phrase: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}phrase'],
+      )!,
+      translation: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}translation'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $SavedPhrasesTable createAlias(String alias) {
+    return $SavedPhrasesTable(attachedDatabase, alias);
+  }
+}
+
+class SavedPhrase extends DataClass implements Insertable<SavedPhrase> {
+  final int id;
+  final String phrase;
+  final String translation;
+  final DateTime createdAt;
+  const SavedPhrase({
+    required this.id,
+    required this.phrase,
+    required this.translation,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['phrase'] = Variable<String>(phrase);
+    map['translation'] = Variable<String>(translation);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    return map;
+  }
+
+  SavedPhrasesCompanion toCompanion(bool nullToAbsent) {
+    return SavedPhrasesCompanion(
+      id: Value(id),
+      phrase: Value(phrase),
+      translation: Value(translation),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory SavedPhrase.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SavedPhrase(
+      id: serializer.fromJson<int>(json['id']),
+      phrase: serializer.fromJson<String>(json['phrase']),
+      translation: serializer.fromJson<String>(json['translation']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'phrase': serializer.toJson<String>(phrase),
+      'translation': serializer.toJson<String>(translation),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  SavedPhrase copyWith({
+    int? id,
+    String? phrase,
+    String? translation,
+    DateTime? createdAt,
+  }) => SavedPhrase(
+    id: id ?? this.id,
+    phrase: phrase ?? this.phrase,
+    translation: translation ?? this.translation,
+    createdAt: createdAt ?? this.createdAt,
+  );
+  SavedPhrase copyWithCompanion(SavedPhrasesCompanion data) {
+    return SavedPhrase(
+      id: data.id.present ? data.id.value : this.id,
+      phrase: data.phrase.present ? data.phrase.value : this.phrase,
+      translation: data.translation.present
+          ? data.translation.value
+          : this.translation,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SavedPhrase(')
+          ..write('id: $id, ')
+          ..write('phrase: $phrase, ')
+          ..write('translation: $translation, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, phrase, translation, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SavedPhrase &&
+          other.id == this.id &&
+          other.phrase == this.phrase &&
+          other.translation == this.translation &&
+          other.createdAt == this.createdAt);
+}
+
+class SavedPhrasesCompanion extends UpdateCompanion<SavedPhrase> {
+  final Value<int> id;
+  final Value<String> phrase;
+  final Value<String> translation;
+  final Value<DateTime> createdAt;
+  const SavedPhrasesCompanion({
+    this.id = const Value.absent(),
+    this.phrase = const Value.absent(),
+    this.translation = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  });
+  SavedPhrasesCompanion.insert({
+    this.id = const Value.absent(),
+    required String phrase,
+    required String translation,
+    this.createdAt = const Value.absent(),
+  }) : phrase = Value(phrase),
+       translation = Value(translation);
+  static Insertable<SavedPhrase> custom({
+    Expression<int>? id,
+    Expression<String>? phrase,
+    Expression<String>? translation,
+    Expression<DateTime>? createdAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (phrase != null) 'phrase': phrase,
+      if (translation != null) 'translation': translation,
+      if (createdAt != null) 'created_at': createdAt,
+    });
+  }
+
+  SavedPhrasesCompanion copyWith({
+    Value<int>? id,
+    Value<String>? phrase,
+    Value<String>? translation,
+    Value<DateTime>? createdAt,
+  }) {
+    return SavedPhrasesCompanion(
+      id: id ?? this.id,
+      phrase: phrase ?? this.phrase,
+      translation: translation ?? this.translation,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (phrase.present) {
+      map['phrase'] = Variable<String>(phrase.value);
+    }
+    if (translation.present) {
+      map['translation'] = Variable<String>(translation.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SavedPhrasesCompanion(')
+          ..write('id: $id, ')
+          ..write('phrase: $phrase, ')
+          ..write('translation: $translation, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $RecentBooksTable extends RecentBooks
     with TableInfo<$RecentBooksTable, RecentBook> {
   @override
@@ -877,6 +1178,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
   late final $VocabularyEntriesTable vocabularyEntries =
       $VocabularyEntriesTable(this);
+  late final $SavedPhrasesTable savedPhrases = $SavedPhrasesTable(this);
   late final $RecentBooksTable recentBooks = $RecentBooksTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
@@ -884,6 +1186,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   @override
   List<DatabaseSchemaEntity> get allSchemaEntities => [
     vocabularyEntries,
+    savedPhrases,
     recentBooks,
   ];
 }
@@ -1072,6 +1375,183 @@ typedef $$VocabularyEntriesTableProcessedTableManager =
         BaseReferences<_$AppDatabase, $VocabularyEntriesTable, VocabularyEntry>,
       ),
       VocabularyEntry,
+      PrefetchHooks Function()
+    >;
+typedef $$SavedPhrasesTableCreateCompanionBuilder =
+    SavedPhrasesCompanion Function({
+      Value<int> id,
+      required String phrase,
+      required String translation,
+      Value<DateTime> createdAt,
+    });
+typedef $$SavedPhrasesTableUpdateCompanionBuilder =
+    SavedPhrasesCompanion Function({
+      Value<int> id,
+      Value<String> phrase,
+      Value<String> translation,
+      Value<DateTime> createdAt,
+    });
+
+class $$SavedPhrasesTableFilterComposer
+    extends Composer<_$AppDatabase, $SavedPhrasesTable> {
+  $$SavedPhrasesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get phrase => $composableBuilder(
+    column: $table.phrase,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get translation => $composableBuilder(
+    column: $table.translation,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SavedPhrasesTableOrderingComposer
+    extends Composer<_$AppDatabase, $SavedPhrasesTable> {
+  $$SavedPhrasesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get phrase => $composableBuilder(
+    column: $table.phrase,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get translation => $composableBuilder(
+    column: $table.translation,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SavedPhrasesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SavedPhrasesTable> {
+  $$SavedPhrasesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get phrase =>
+      $composableBuilder(column: $table.phrase, builder: (column) => column);
+
+  GeneratedColumn<String> get translation => $composableBuilder(
+    column: $table.translation,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+}
+
+class $$SavedPhrasesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $SavedPhrasesTable,
+          SavedPhrase,
+          $$SavedPhrasesTableFilterComposer,
+          $$SavedPhrasesTableOrderingComposer,
+          $$SavedPhrasesTableAnnotationComposer,
+          $$SavedPhrasesTableCreateCompanionBuilder,
+          $$SavedPhrasesTableUpdateCompanionBuilder,
+          (
+            SavedPhrase,
+            BaseReferences<_$AppDatabase, $SavedPhrasesTable, SavedPhrase>,
+          ),
+          SavedPhrase,
+          PrefetchHooks Function()
+        > {
+  $$SavedPhrasesTableTableManager(_$AppDatabase db, $SavedPhrasesTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SavedPhrasesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SavedPhrasesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SavedPhrasesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String> phrase = const Value.absent(),
+                Value<String> translation = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+              }) => SavedPhrasesCompanion(
+                id: id,
+                phrase: phrase,
+                translation: translation,
+                createdAt: createdAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required String phrase,
+                required String translation,
+                Value<DateTime> createdAt = const Value.absent(),
+              }) => SavedPhrasesCompanion.insert(
+                id: id,
+                phrase: phrase,
+                translation: translation,
+                createdAt: createdAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SavedPhrasesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $SavedPhrasesTable,
+      SavedPhrase,
+      $$SavedPhrasesTableFilterComposer,
+      $$SavedPhrasesTableOrderingComposer,
+      $$SavedPhrasesTableAnnotationComposer,
+      $$SavedPhrasesTableCreateCompanionBuilder,
+      $$SavedPhrasesTableUpdateCompanionBuilder,
+      (
+        SavedPhrase,
+        BaseReferences<_$AppDatabase, $SavedPhrasesTable, SavedPhrase>,
+      ),
+      SavedPhrase,
       PrefetchHooks Function()
     >;
 typedef $$RecentBooksTableCreateCompanionBuilder =
@@ -1366,6 +1846,8 @@ class $AppDatabaseManager {
   $AppDatabaseManager(this._db);
   $$VocabularyEntriesTableTableManager get vocabularyEntries =>
       $$VocabularyEntriesTableTableManager(_db, _db.vocabularyEntries);
+  $$SavedPhrasesTableTableManager get savedPhrases =>
+      $$SavedPhrasesTableTableManager(_db, _db.savedPhrases);
   $$RecentBooksTableTableManager get recentBooks =>
       $$RecentBooksTableTableManager(_db, _db.recentBooks);
 }

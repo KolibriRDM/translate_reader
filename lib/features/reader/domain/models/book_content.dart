@@ -1,17 +1,33 @@
 import 'package:translate_reader/core/models/book_format.dart';
 
-enum BookBlockType { paragraph, heading }
+enum BookBlockType { paragraph, heading, epigraph, cite }
+
+enum BookInlineStyle { emphasis, strong }
+
+class BookInlineSpan {
+  const BookInlineSpan({
+    required this.start,
+    required this.end,
+    required this.style,
+  });
+
+  final int start;
+  final int end;
+  final BookInlineStyle style;
+}
 
 class BookBlock {
   const BookBlock({
     required this.text,
     this.type = BookBlockType.paragraph,
     this.level = 0,
+    this.inlineSpans = const <BookInlineSpan>[],
   });
 
   final String text;
   final BookBlockType type;
   final int level;
+  final List<BookInlineSpan> inlineSpans;
 
   bool get isHeading => type == BookBlockType.heading;
 }
@@ -63,6 +79,7 @@ class FormattedBookBlock {
     required this.end,
     required this.type,
     required this.level,
+    this.inlineSpans = const <BookInlineSpan>[],
   });
 
   final String text;
@@ -70,6 +87,7 @@ class FormattedBookBlock {
   final int end;
   final BookBlockType type;
   final int level;
+  final List<BookInlineSpan> inlineSpans;
 
   bool get isHeading => type == BookBlockType.heading;
 }

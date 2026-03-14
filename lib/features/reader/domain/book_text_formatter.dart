@@ -31,11 +31,25 @@ class BookTextFormatter {
       }
 
       final int start = buffer.length;
-      final String formattedText = block.isHeading
-          ? normalizedText
-          : '$indent$normalizedText';
+      final bool addIndent = block.type == BookBlockType.paragraph;
+      final String formattedText = addIndent
+          ? '$indent$normalizedText'
+          : normalizedText;
       buffer.write(formattedText);
       final int end = buffer.length;
+
+      final int indentOffset = addIndent ? indent.length : 0;
+      final List<BookInlineSpan> shiftedSpans = block.inlineSpans.isEmpty
+          ? const <BookInlineSpan>[]
+          : block.inlineSpans
+              .map(
+                (BookInlineSpan span) => BookInlineSpan(
+                  start: span.start + indentOffset,
+                  end: span.end + indentOffset,
+                  style: span.style,
+                ),
+              )
+              .toList(growable: false);
 
       formattedBlocks.add(
         FormattedBookBlock(
@@ -44,6 +58,7 @@ class BookTextFormatter {
           end: end,
           type: block.type,
           level: block.level,
+          inlineSpans: shiftedSpans,
         ),
       );
       blockOffsets[index] = start;
